@@ -7,29 +7,29 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// GitHub 저장소 내의 이미지/정적 파일들을 서버에서 불러올 수 있도록 설정
 app.use(express.static(__dirname));
 
-const MAP_SIZE = 2000;
+// 맵 실제 탐색 크기 (기존 2000 -> 8000으로 확장)
+const MAP_SIZE = 8000;
 let players = {};
 
-// 포탑 및 억제기 데이터
+// 포탑 및 억제기 위치 (맵 크기에 맞게 비례 조정)
 const structures = [
   // 블루팀 포탑
-  { type: 'turret', team: 'blue', x: 220, y: 1350 },
-  { type: 'turret', team: 'blue', x: 650, y: 1350 },
-  { type: 'turret', team: 'blue', x: 1350, y: 1780 },
+  { type: 'turret', team: 'blue', x: 880, y: 5400 },
+  { type: 'turret', team: 'blue', x: 2600, y: 5400 },
+  { type: 'turret', team: 'blue', x: 5400, y: 7120 },
   // 레드팀 포탑
-  { type: 'turret', team: 'red', x: 1780, y: 650 },
-  { type: 'turret', team: 'red', x: 1350, y: 650 },
-  { type: 'turret', team: 'red', x: 650, y: 220 },
+  { type: 'turret', team: 'red', x: 7120, y: 2600 },
+  { type: 'turret', team: 'red', x: 5400, y: 2600 },
+  { type: 'turret', team: 'red', x: 2600, y: 880 },
   // 억제기
-  { type: 'inh', team: 'blue', x: 180, y: 1620 },
-  { type: 'inh', team: 'blue', x: 380, y: 1620 },
-  { type: 'inh', team: 'blue', x: 380, y: 1820 },
-  { type: 'inh', team: 'red', x: 1620, y: 180 },
-  { type: 'inh', team: 'red', x: 1620, y: 380 },
-  { type: 'inh', team: 'red', x: 1820, y: 380 }
+  { type: 'inh', team: 'blue', x: 720, y: 6480 },
+  { type: 'inh', team: 'blue', x: 1520, y: 6480 },
+  { type: 'inh', team: 'blue', x: 1520, y: 7280 },
+  { type: 'inh', team: 'red', x: 6480, y: 720 },
+  { type: 'inh', team: 'red', x: 6480, y: 1520 },
+  { type: 'inh', team: 'red', x: 7280, y: 1520 }
 ];
 
 app.get('/', (req, res) => {
@@ -40,21 +40,29 @@ app.get('/', (req, res) => {
       <title>Summoner's Rift Classic</title>
       <style>
         body { margin: 0; background: #000; color: white; text-align: center; font-family: sans-serif; overflow: hidden; }
-        canvas { display: block; margin: 0 auto; background: #000; }
+        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
       </style>
     </head>
     <body>
-      <canvas id="game" width="1024" height="600"></canvas>
+      <canvas id="game"></canvas>
       <script src="/socket.io/socket.io.js"></script>
       <script>
         const socket = io();
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
-        const MAP_SIZE = 2000;
+        
+        // 화면 크기에 맞게 해상도 자동 조절
+        function resizeCanvas() {
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
-        // GitHub 저장소에 올린 맵 이미지 파일 로드
+        const MAP_SIZE = 8000;
+
         const mapImage = new Image();
-        mapImage.src = '/images.png'; // 저장소에 올린 파일명과 일치해야 합니다. (예: map.jpg, map.webp 등)
+        mapImage.src = '/image.png';
 
         let players = {};
         const keys = {};
@@ -94,40 +102,43 @@ app.get('/', (req, res) => {
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+          // 이미지 화질 보정 옵션 (선명도 유지)
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+
           ctx.save();
           if (me) {
             ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
           }
 
-          // 1. 저장소의 맵 이미지 렌더링
+          // 1. 대형 맵 이미지 렌더링 (8000x8000)
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
-            // 이미지 로딩 중일 때 표시
             ctx.fillStyle = '#111111';
             ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
             ctx.fillStyle = '#ffffff';
-            ctx.font = '16px sans-serif';
+            ctx.font = '24px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
+            ctx.fillText('고화질 맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
           // 2. 포탑 및 억제기
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
-              ctx.fillRect(s.x - 12, s.y - 12, 24, 24);
+              ctx.fillRect(s.x - 30, s.y - 30, 60, 60);
               ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 2;
-              ctx.strokeRect(s.x - 12, s.y - 12, 24, 24);
+              ctx.lineWidth = 4;
+              ctx.strokeRect(s.x - 30, s.y - 30, 60, 60);
             } else if (s.type === 'inh') {
               ctx.fillStyle = s.team === 'blue' ? '#00e5ff' : '#ff0055';
-              ctx.beginPath(); ctx.arc(s.x, s.y, 14, 0, Math.PI * 2); ctx.fill();
-              ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+              ctx.beginPath(); ctx.arc(s.x, s.y, 35, 0, Math.PI * 2); ctx.fill();
+              ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
             }
           });
 
-          // 3. 플레이어 캐릭터 렌더링
+          // 3. 플레이어 캐릭터
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -135,23 +146,23 @@ app.get('/', (req, res) => {
             // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.beginPath();
-            ctx.arc(p.x + 2, p.y + 2, 15, 0, Math.PI * 2);
+            ctx.arc(p.x + 4, p.y + 4, 30, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터 원형 (나: 민트, 상대: 노랑)
+            // 캐릭터
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, 30, 0, Math.PI * 2);
             ctx.fill();
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 5;
             ctx.strokeStyle = '#000000';
             ctx.stroke();
 
             // 닉네임
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 12px sans-serif';
+            ctx.font = 'bold 18px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 22);
+            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 42);
           }
 
           ctx.restore();
@@ -163,9 +174,10 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
+  // 시작 위치 조정 (블루팀 샘)
   players[socket.id] = { 
-    x: 220, 
-    y: MAP_SIZE - 220, 
+    x: 800, 
+    y: MAP_SIZE - 800, 
     dirX: 0, 
     dirY: 0 
   };
@@ -183,7 +195,8 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const SPEED = 4;
+  // 맵이 넓어진 만큼 이동 속도 증가 (기존 4 -> 12)
+  const SPEED = 12;
 
   for (let id in players) {
     const p = players[id];
@@ -199,8 +212,8 @@ setInterval(() => {
     const nextX = p.x + moveX * SPEED;
     const nextY = p.y + moveY * SPEED;
 
-    if (nextX >= 50 && nextX <= MAP_SIZE - 50) p.x = nextX;
-    if (nextY >= 50 && nextY <= MAP_SIZE - 50) p.y = nextY;
+    if (nextX >= 100 && nextX <= MAP_SIZE - 100) p.x = nextX;
+    if (nextY >= 100 && nextY <= MAP_SIZE - 100) p.y = nextY;
   }
 
   io.emit('gameState', { players, structures });
