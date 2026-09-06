@@ -7,8 +7,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// GitHub 저장소 내의 이미지/정적 파일들을 서버에서 불러올 수 있도록 설정
-app.use(express.static(__dirname));
+// 파일 경로 인식을 안정화하기 위해 absolute path 사용
+app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
@@ -52,9 +52,9 @@ app.get('/', (req, res) => {
         const ctx = canvas.getContext('2d');
         const MAP_SIZE = 2000;
 
-        // GitHub 저장소에 올린 맵 이미지 파일 로드
+        // 맵 이미지 로드 (저장소 내 파일명이 image.png 인지 확인 필수)
         const mapImage = new Image();
-        mapImage.src = '/image.png';
+        mapImage.src = 'images.png';
 
         let players = {};
         const keys = {};
@@ -99,14 +99,14 @@ app.get('/', (req, res) => {
             // 화면 중심 이동
             ctx.translate(canvas.width / 2, canvas.height / 2);
             
-            // 1. 화면 확대 (Zoom Level: 1.8배)
+            // 화면 확대 (Zoom Level: 1.8배)
             ctx.scale(1.8, 1.8);
             
-            // 내 캐릭터 중심으로 좌표 이동
+            // 내 캐릭터 중심으로 카메라 이동
             ctx.translate(-me.x, -me.y);
           }
 
-          // 1. 저장소의 맵 이미지 렌더링
+          // 1. 맵 이미지 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
@@ -118,22 +118,22 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기 (크기 축소 적용)
+          // 2. 포탑 및 억제기 (축소 크기)
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
-              ctx.fillRect(s.x - 7, s.y - 7, 14, 14); // 24 -> 14로 축소
+              ctx.fillRect(s.x - 7, s.y - 7, 14, 14);
               ctx.strokeStyle = '#ffffff';
               ctx.lineWidth = 1;
               ctx.strokeRect(s.x - 7, s.y - 7, 14, 14);
             } else if (s.type === 'inh') {
               ctx.fillStyle = s.team === 'blue' ? '#00e5ff' : '#ff0055';
-              ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, Math.PI * 2); ctx.fill(); // 반지름 14 -> 8로 축소
+              ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, Math.PI * 2); ctx.fill();
               ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
             }
           });
 
-          // 3. 플레이어 캐릭터 렌더링 (크기 축소 적용)
+          // 3. 플레이어 캐릭터 렌더링 (축소 크기)
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -144,7 +144,7 @@ app.get('/', (req, res) => {
             ctx.arc(p.x + 1, p.y + 1, 8, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터 원형 (반지름 15 -> 8로 축소)
+            // 캐릭터
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
             ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
