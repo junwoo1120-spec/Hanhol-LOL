@@ -17,7 +17,7 @@ const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
 const TURRET_RADIUS = 22;
 
-// 롤 미니맵 표준 대칭 비율에 맞춘 1차 보정 좌표
+// 충돌체 배열
 const colliders = [
   // === 블루팀 (좌하단) ===
   { x: 280, y: 1720, radius: NEXUS_RADIUS },     // 블루 넥서스
@@ -115,7 +115,6 @@ app.get('/', (req, res) => {
         let camX = 1000;
         let camY = 1000;
 
-        // 클릭한 위치를 모니터링하기 위한 변수
         let lastClickMapX = null;
         let lastClickMapY = null;
 
@@ -128,7 +127,6 @@ app.get('/', (req, res) => {
           const cssHeight = canvas.height / dpr;
           const zoom = 4.0;
 
-          // 화면 클릭 좌표를 맵상의 (X, Y) 좌표로 역계산
           const worldX = (clickCssX - cssWidth / 2) / zoom + camX;
           const worldY = (clickCssY - cssHeight / 2) / zoom + camY;
 
@@ -217,7 +215,7 @@ app.get('/', (req, res) => {
             ctx.stroke();
           }
 
-          // 3. 마지막 클릭 위치 표시 (초록색 십자가)
+          // 3. 클릭 위치 표시 (초록색 십자가)
           if (lastClickMapX !== null && lastClickMapY !== null) {
             ctx.strokeStyle = '#00ff00';
             ctx.lineWidth = 1;
@@ -249,7 +247,6 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  // 안전한 스폰 위치 (우물)
   players[socket.id] = { 
     x: 150, 
     y: 1850, 
@@ -270,7 +267,8 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const SPEED = 0.75;
+  // 이동 속도를 3배(0.75 -> 2.25)로 변경했습니다.
+  const SPEED = 2.25;
 
   for (let id in players) {
     const p = players[id];
