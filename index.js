@@ -41,7 +41,15 @@ app.get('/', (req, res) => {
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
-        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
+        /* CSS를 통해 확대로 인한 뭉개짐(블러) 방지 처리 */
+        canvas { 
+          display: block; 
+          width: 100vw; 
+          height: 100vh; 
+          background: #000; 
+          image-rendering: pixelated; 
+          image-rendering: crisp-edges;
+        }
       </style>
     </head>
     <body>
@@ -57,6 +65,11 @@ app.get('/', (req, res) => {
         function resizeCanvas() {
           canvas.width = window.innerWidth;
           canvas.height = window.innerHeight;
+          
+          // Canvas 내 이미지 보간(부드럽게 뭉개기) 끄기 설정
+          ctx.imageSmoothingEnabled = false;
+          ctx.webkitImageSmoothingEnabled = false;
+          ctx.mozImageSmoothingEnabled = false;
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
@@ -100,19 +113,22 @@ app.get('/', (req, res) => {
         function draw(structures) {
           const me = players[socket.id];
           
+          // 화면 리셋 시에도 픽셀 선명도 재설정
+          ctx.imageSmoothingEnabled = false;
+
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           ctx.save();
           if (me) {
-            // 화면 중심 설정
-            ctx.translate(canvas.width / 2, canvas.height / 2);
+            // 화면 중심 설정 및 정수화 위치 조정을 통한 번짐 방지
+            ctx.translate(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
             
-            // 시야 범위 좁히기 (줌인 4.5배 적용)
+            // 시야 범위 4.5배 축소(줌인)
             ctx.scale(4.5, 4.5);
             
-            // 내 캐릭터 중심으로 카메라 이동
-            ctx.translate(-me.x, -me.y);
+            // 내 캐릭터 중심으로 카메라 이동 (소수점 방지)
+            ctx.translate(-Math.floor(me.x), -Math.floor(me.y));
           }
 
           // 1. 맵 이미지 렌더링
