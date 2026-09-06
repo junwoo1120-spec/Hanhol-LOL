@@ -12,20 +12,39 @@ app.use(express.static(path.join(__dirname)));
 const MAP_SIZE = 2000;
 let players = {};
 
-const structures = [
-  { type: 'turret', team: 'blue', x: 220, y: 1350 },
-  { type: 'turret', team: 'blue', x: 650, y: 1350 },
-  { type: 'turret', team: 'blue', x: 1350, y: 1780 },
-  { type: 'turret', team: 'red', x: 1780, y: 650 },
-  { type: 'turret', team: 'red', x: 1350, y: 650 },
-  { type: 'turret', team: 'red', x: 650, y: 220 },
-  { type: 'inh', team: 'blue', x: 180, y: 1620 },
-  { type: 'inh', team: 'blue', x: 380, y: 1620 },
-  { type: 'inh', team: 'blue', x: 380, y: 1820 },
-  { type: 'inh', team: 'red', x: 1620, y: 180 },
-  { type: 'inh', team: 'red', x: 1620, y: 380 },
-  { type: 'inh', team: 'red', x: 1820, y: 380 }
+// 맵 이미지 내 실제 구조물 위치 및 충돌 반경(Hitbox) 설정
+const colliders = [
+  // 블루팀 넥서스 & 억제기 & 포탑
+  { x: 220, y: 1780, radius: 45 }, // 블루 넥서스
+  { x: 180, y: 1620, radius: 25 }, // 블루 억제기 (상)
+  { x: 380, y: 1620, radius: 25 }, // 블루 억제기 (중)
+  { x: 380, y: 1820, radius: 25 }, // 블루 억제기 (하)
+  { x: 220, y: 1350, radius: 30 }, // 블루 1차 타워 (상)
+  { x: 650, y: 1350, radius: 30 }, // 블루 1차 타워 (중)
+  { x: 1350, y: 1780, radius: 30 }, // 블루 1차 타워 (하)
+
+  // 레드팀 넥서스 & 억제기 & 포탑
+  { x: 1780, y: 220, radius: 45 }, // 레드 넥서스
+  { x: 1620, y: 180, radius: 25 }, // 레드 억제기 (상)
+  { x: 1620, y: 380, radius: 25 }, // 레드 억제기 (중)
+  { x: 1820, y: 380, radius: 25 }, // 레드 억제기 (하)
+  { x: 650, y: 220, radius: 30 },  // 레드 1차 타워 (상)
+  { x: 1350, y: 650, radius: 30 }, // 레드 1차 타워 (중)
+  { x: 1780, y: 650, radius: 30 }  // 레드 1차 타워 (하)
 ];
+
+// 원형 충돌 검사 함수
+function isColliding(x, y, playerRadius = 3.5) {
+  for (let c of colliders) {
+    const dx = x - c.x;
+    const dy = y - c.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance < c.radius + playerRadius) {
+      return true; // 충돌 발생
+    }
+  }
+  return false;
+}
 
 app.get('/', (req, res) => {
   res.send(`
@@ -57,7 +76,6 @@ app.get('/', (req, res) => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // 맵 이미지 파일명 web.webp로 변경
         const mapImage = new Image();
         mapImage.src = 'web.webp';
 
@@ -91,19 +109,17 @@ app.get('/', (req, res) => {
           socket.emit('keyMove', dir);
         }
 
-        let latestStructures = [];
         socket.on('gameState', (data) => {
           players = data.players;
-          latestStructures = data.structures;
         });
 
         function renderLoop() {
-          draw(latestStructures);
+          draw();
           requestAnimationFrame(renderLoop);
         }
         requestAnimationFrame(renderLoop);
 
-        function draw(structures) {
+        function draw() {
           const me = players[socket.id];
           
           ctx.fillStyle = '#000000';
@@ -126,18 +142,16 @@ app.get('/', (req, res) => {
             ctx.scale(dpr, dpr);
             ctx.translate(cssWidth / 2, cssHeight / 2);
             
-            // 좁은 시야 연출 (4배 확대)
             const zoom = 4.0;
             ctx.scale(zoom, zoom);
             
             ctx.translate(-camX, -camY);
           }
 
-          // 고화질 선명도 보정 설정
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
 
-          // 1. web.webp 맵 이미지 렌더링
+          // 1. 배경 맵 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
@@ -149,31 +163,18 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기
-          structures.forEach(s => {
-            if (s.type === 'turret') {
-              ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
-              ctx.fillRect(s.x - 4, s.y - 4, 8, 8);
-              ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 0.8;
-              ctx.strokeRect(s.x - 4, s.y - 4, 8, 8);
-            } else if (s.type === 'inh') {
-              ctx.fillStyle = s.team === 'blue' ? '#00e5ff' : '#ff0055';
-              ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI * 2); ctx.fill();
-              ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.8; ctx.stroke();
-            }
-          });
-
-          // 3. 플레이어 캐릭터
+          // 2. 플레이어 캐릭터만 렌더링 (구조물 기본 도형 제거됨)
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
 
+            // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.beginPath();
             ctx.arc(p.x + 0.5, p.y + 0.5, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
+            // 본체
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
             ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
@@ -182,6 +183,7 @@ app.get('/', (req, res) => {
             ctx.strokeStyle = '#000000';
             ctx.stroke();
 
+            // 이름 표기
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 4px sans-serif';
             ctx.textAlign = 'center';
@@ -233,11 +235,21 @@ setInterval(() => {
     const nextX = p.x + moveX * SPEED;
     const nextY = p.y + moveY * SPEED;
 
-    if (nextX >= 20 && nextX <= MAP_SIZE - 20) p.x = nextX;
-    if (nextY >= 20 && nextY <= MAP_SIZE - 20) p.y = nextY;
+    // X축 이동 및 충돌 체크
+    if (nextX >= 20 && nextX <= MAP_SIZE - 20) {
+      if (!isColliding(nextX, p.y)) {
+        p.x = nextX;
+      }
+    }
+    // Y축 이동 및 충돌 체크
+    if (nextY >= 20 && nextY <= MAP_SIZE - 20) {
+      if (!isColliding(p.x, nextY)) {
+        p.y = nextY;
+      }
+    }
   }
 
-  io.emit('gameState', { players, structures });
+  io.emit('gameState', { players });
 }, 1000 / 60);
 
 const PORT = process.env.PORT || 3000;
