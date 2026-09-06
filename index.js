@@ -61,9 +61,9 @@ app.get('/', (req, res) => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // 맵 이미지 로드
+        // 맵 이미지 로드 (images.png 로 수정 완료)
         const mapImage = new Image();
-        mapImage.src = '/image.png'; // 저장소의 맵 이미지 파일명에 맞춰 수정해 주세요 (map.png 등)
+        mapImage.src = 'images.png';
 
         let players = {};
         const keys = {};
@@ -127,7 +127,7 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기 렌더링 (비율에 맞게 작게 축소)
+          // 2. 포탑 및 억제기 렌더링
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
@@ -142,7 +142,7 @@ app.get('/', (req, res) => {
             }
           });
 
-          // 3. 플레이어 캐릭터 렌더링 (실제 롤 스크린샷 비율 적용)
+          // 3. 플레이어 캐릭터 렌더링 (축소 비율 적용)
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -153,7 +153,7 @@ app.get('/', (req, res) => {
             ctx.arc(p.x + 1, p.y + 1, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터 (반지름 3.5px로 축소)
+            // 캐릭터
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
             ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
@@ -198,7 +198,6 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  // 미드 진영 간 이동에 약 1분이 소요되도록 이동 속도 하향 (4 -> 0.75)
   const SPEED = 0.75;
 
   for (let id in players) {
