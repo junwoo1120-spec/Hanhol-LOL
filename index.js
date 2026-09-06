@@ -163,7 +163,7 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 플레이어 캐릭터만 렌더링 (구조물 기본 도형 제거됨)
+          // 2. 플레이어 캐릭터 렌더링
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -199,9 +199,10 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
+  // 스폰 위치 변경: 블루팀 우물 지역 (120, 1880) - 넥서스 충돌체 밖
   players[socket.id] = { 
-    x: 220, 
-    y: MAP_SIZE - 220, 
+    x: 120, 
+    y: 1880, 
     dirX: 0, 
     dirY: 0 
   };
