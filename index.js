@@ -61,7 +61,7 @@ app.get('/', (req, res) => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // 맵 이미지 로드 (images.png 로 수정 완료)
+        // 맵 이미지 로드
         const mapImage = new Image();
         mapImage.src = 'images.png';
 
@@ -105,11 +105,11 @@ app.get('/', (req, res) => {
 
           ctx.save();
           if (me) {
-            // 화면 중심 설정 (전체 화면 대응)
+            // 화면 중심 설정
             ctx.translate(canvas.width / 2, canvas.height / 2);
             
-            // 시야 범위 좁히기 (줌인 2.2배)
-            ctx.scale(2.2, 2.2);
+            // 시야 범위 좁히기 (줌인 4.5배 적용)
+            ctx.scale(4.5, 4.5);
             
             // 내 캐릭터 중심으로 카메라 이동
             ctx.translate(-me.x, -me.y);
@@ -142,7 +142,7 @@ app.get('/', (req, res) => {
             }
           });
 
-          // 3. 플레이어 캐릭터 렌더링 (축소 비율 적용)
+          // 3. 플레이어 캐릭터 렌더링
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -150,7 +150,7 @@ app.get('/', (req, res) => {
             // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.beginPath();
-            ctx.arc(p.x + 1, p.y + 1, 3.5, 0, Math.PI * 2);
+            ctx.arc(p.x + 0.5, p.y + 0.5, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
             // 캐릭터
@@ -158,15 +158,15 @@ app.get('/', (req, res) => {
             ctx.beginPath();
             ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
             ctx.fill();
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 0.8;
             ctx.strokeStyle = '#000000';
             ctx.stroke();
 
             // 닉네임
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 6px sans-serif';
+            ctx.font = 'bold 3.5px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 6);
+            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 5);
           }
 
           ctx.restore();
