@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// 파일 경로 인식을 안정화하기 위해 absolute path 사용
+// 정적 파일 연결
 app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
@@ -39,12 +39,13 @@ app.get('/', (req, res) => {
     <head>
       <title>Summoner's Rift Classic</title>
       <style>
-        body { margin: 0; background: #000; color: white; text-align: center; font-family: sans-serif; overflow: hidden; }
-        canvas { display: block; margin: 0 auto; background: #000; }
+        * { box-sizing: border-box; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
+        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
       </style>
     </head>
     <body>
-      <canvas id="game" width="1024" height="600"></canvas>
+      <canvas id="game"></canvas>
       <script src="/socket.io/socket.io.js"></script>
       <script>
         const socket = io();
@@ -52,9 +53,17 @@ app.get('/', (req, res) => {
         const ctx = canvas.getContext('2d');
         const MAP_SIZE = 2000;
 
-        // 맵 이미지 로드 (저장소 내 파일명이 image.png 인지 확인 필수)
+        // 전체 화면 대응 캔버스 리사이즈 함수
+        function resizeCanvas() {
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // 맵 이미지 로드
         const mapImage = new Image();
-        mapImage.src = 'images.png';
+        mapImage.src = '/image.png'; // 저장소의 맵 이미지 파일명에 맞춰 수정해 주세요 (map.png 등)
 
         let players = {};
         const keys = {};
@@ -96,11 +105,11 @@ app.get('/', (req, res) => {
 
           ctx.save();
           if (me) {
-            // 화면 중심 이동
+            // 화면 중심 설정 (전체 화면 대응)
             ctx.translate(canvas.width / 2, canvas.height / 2);
             
-            // 화면 확대 (Zoom Level: 1.8배)
-            ctx.scale(1.8, 1.8);
+            // 시야 범위 좁히기 (줌인 2.2배)
+            ctx.scale(2.2, 2.2);
             
             // 내 캐릭터 중심으로 카메라 이동
             ctx.translate(-me.x, -me.y);
@@ -118,46 +127,46 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기 (축소 크기)
+          // 2. 포탑 및 억제기 렌더링 (비율에 맞게 작게 축소)
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
-              ctx.fillRect(s.x - 7, s.y - 7, 14, 14);
+              ctx.fillRect(s.x - 5, s.y - 5, 10, 10);
               ctx.strokeStyle = '#ffffff';
               ctx.lineWidth = 1;
-              ctx.strokeRect(s.x - 7, s.y - 7, 14, 14);
+              ctx.strokeRect(s.x - 5, s.y - 5, 10, 10);
             } else if (s.type === 'inh') {
               ctx.fillStyle = s.team === 'blue' ? '#00e5ff' : '#ff0055';
-              ctx.beginPath(); ctx.arc(s.x, s.y, 8, 0, Math.PI * 2); ctx.fill();
+              ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.fill();
               ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
             }
           });
 
-          // 3. 플레이어 캐릭터 렌더링 (축소 크기)
+          // 3. 플레이어 캐릭터 렌더링 (실제 롤 스크린샷 비율 적용)
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
 
             // 그림자
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.beginPath();
-            ctx.arc(p.x + 1, p.y + 1, 8, 0, Math.PI * 2);
+            ctx.arc(p.x + 1, p.y + 1, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터
+            // 캐릭터 (반지름 3.5px로 축소)
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
             ctx.fill();
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1;
             ctx.strokeStyle = '#000000';
             ctx.stroke();
 
             // 닉네임
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 9px sans-serif';
+            ctx.font = 'bold 6px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 12);
+            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 6);
           }
 
           ctx.restore();
@@ -189,7 +198,8 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const SPEED = 4;
+  // 미드 진영 간 이동에 약 1분이 소요되도록 이동 속도 하향 (4 -> 0.75)
+  const SPEED = 0.75;
 
   for (let id in players) {
     const p = players[id];
@@ -205,8 +215,8 @@ setInterval(() => {
     const nextX = p.x + moveX * SPEED;
     const nextY = p.y + moveY * SPEED;
 
-    if (nextX >= 50 && nextX <= MAP_SIZE - 50) p.x = nextX;
-    if (nextY >= 50 && nextY <= MAP_SIZE - 50) p.y = nextY;
+    if (nextX >= 20 && nextX <= MAP_SIZE - 20) p.x = nextX;
+    if (nextY >= 20 && nextY <= MAP_SIZE - 20) p.y = nextY;
   }
 
   io.emit('gameState', { players, structures });
