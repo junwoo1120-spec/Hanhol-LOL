@@ -1,10 +1,14 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
+
+// GitHub 저장소 내의 이미지/정적 파일들을 서버에서 불러올 수 있도록 설정
+app.use(express.static(__dirname));
 
 const MAP_SIZE = 2000;
 let players = {};
@@ -48,9 +52,9 @@ app.get('/', (req, res) => {
         const ctx = canvas.getContext('2d');
         const MAP_SIZE = 2000;
 
-        // 롤 고전/클래식 협곡 이미지 로드
+        // GitHub 저장소에 올린 맵 이미지 파일 로드
         const mapImage = new Image();
-        mapImage.src = 'https://i.ibb.co/3s8pL2m/summoners-rift.jpg'; // 보내주신 협곡 고화질 이미지 URL
+        mapImage.src = '/images.png'; // 저장소에 올린 파일명과 일치해야 합니다. (예: map.jpg, map.webp 등)
 
         let players = {};
         const keys = {};
@@ -95,16 +99,20 @@ app.get('/', (req, res) => {
             ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
           }
 
-          // 1. 보내주신 맵 이미지 렌더링
-          if (mapImage.complete) {
+          // 1. 저장소의 맵 이미지 렌더링
+          if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
-            // 이미지 로딩 중일 때 배경
-            ctx.fillStyle = '#111';
+            // 이미지 로딩 중일 때 표시
+            ctx.fillStyle = '#111111';
             ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기 (이미지 위 표시)
+          // 2. 포탑 및 억제기
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
@@ -124,7 +132,7 @@ app.get('/', (req, res) => {
             const p = players[id];
             const isMe = id === socket.id;
 
-            // 캐릭터 그림자
+            // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.beginPath();
             ctx.arc(p.x + 2, p.y + 2, 15, 0, Math.PI * 2);
@@ -188,7 +196,6 @@ setInterval(() => {
       moveY *= 0.7071;
     }
 
-    // 맵 외곽 이동 제한 (2000x2000 안에서만 이동 가능)
     const nextX = p.x + moveX * SPEED;
     const nextY = p.y + moveY * SPEED;
 
