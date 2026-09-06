@@ -41,15 +41,7 @@ app.get('/', (req, res) => {
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: white; font-family: sans-serif; }
-        /* CSS를 통해 확대로 인한 뭉개짐(블러) 방지 처리 */
-        canvas { 
-          display: block; 
-          width: 100vw; 
-          height: 100vh; 
-          background: #000; 
-          image-rendering: pixelated; 
-          image-rendering: crisp-edges;
-        }
+        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
       </style>
     </head>
     <body>
@@ -61,15 +53,12 @@ app.get('/', (req, res) => {
         const ctx = canvas.getContext('2d');
         const MAP_SIZE = 2000;
 
-        // 전체 화면 대응 캔버스 리사이즈 함수
+        // 고해상도(Retina/High-DPI) 대응 및 리사이즈
+        let dpr = window.devicePixelRatio || 1;
         function resizeCanvas() {
-          canvas.width = window.innerWidth;
-          canvas.height = window.innerHeight;
-          
-          // Canvas 내 이미지 보간(부드럽게 뭉개기) 끄기 설정
-          ctx.imageSmoothingEnabled = false;
-          ctx.webkitImageSmoothingEnabled = false;
-          ctx.mozImageSmoothingEnabled = false;
+          dpr = window.devicePixelRatio || 1;
+          canvas.width = window.innerWidth * dpr;
+          canvas.height = window.innerHeight * dpr;
         }
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
@@ -80,6 +69,10 @@ app.get('/', (req, res) => {
 
         let players = {};
         const keys = {};
+
+        // 부드러운 카메라 이동을 위한 위치 변수
+        let camX = 0;
+        let camY = 0;
 
         window.addEventListener('keydown', (e) => {
           if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
@@ -105,31 +98,58 @@ app.get('/', (req, res) => {
           socket.emit('keyMove', dir);
         }
 
+        let latestStructures = [];
         socket.on('gameState', (data) => {
           players = data.players;
-          draw(data.structures);
+          latestStructures = data.structures;
         });
+
+        // 애니메이션 루프 (초당 60FPS 부드러운 카메라 보정 및 렌더링)
+        function renderLoop() {
+          draw(latestStructures);
+          requestAnimationFrame(renderLoop);
+        }
+        requestAnimationFrame(renderLoop);
 
         function draw(structures) {
           const me = players[socket.id];
           
-          // 화면 리셋 시에도 픽셀 선명도 재설정
-          ctx.imageSmoothingEnabled = false;
-
+          // 화면 초기화
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           ctx.save();
+          
           if (me) {
-            // 화면 중심 설정 및 정수화 위치 조정을 통한 번짐 방지
-            ctx.translate(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2));
+            // 카메라 보간 (LERP: 화면 떨림 방지)
+            if (camX === 0 && camY === 0) {
+              camX = me.x;
+              camY = me.y;
+            } else {
+              camX += (me.x - camX) * 0.15;
+              camY += (me.y - camY) * 0.15;
+            }
+
+            const cssWidth = canvas.width / dpr;
+            const cssHeight = canvas.height / dpr;
+
+            // 1. DPI 비율 보정
+            ctx.scale(dpr, dpr);
             
-            // 시야 범위 4.5배 축소(줌인)
-            ctx.scale(4.5, 4.5);
+            // 2. 화면 화면 중심 설정
+            ctx.translate(cssWidth / 2, cssHeight / 2);
             
-            // 내 캐릭터 중심으로 카메라 이동 (소수점 방지)
-            ctx.translate(-Math.floor(me.x), -Math.floor(me.y));
+            // 3. 줌 인 (좁은 시야 보정값)
+            const zoom = 3.5;
+            ctx.scale(zoom, zoom);
+            
+            // 4. 내 캐릭터 중심으로 카메라 이동
+            ctx.translate(-camX, -camY);
           }
+
+          // 이미지 렌더링 품질 설정
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
 
           // 1. 맵 이미지 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
