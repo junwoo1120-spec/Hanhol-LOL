@@ -7,23 +7,18 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// 정적 파일 연결
 app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
 
-// 포탑 및 억제기 데이터
 const structures = [
-  // 블루팀 포탑
   { type: 'turret', team: 'blue', x: 220, y: 1350 },
   { type: 'turret', team: 'blue', x: 650, y: 1350 },
   { type: 'turret', team: 'blue', x: 1350, y: 1780 },
-  // 레드팀 포탑
   { type: 'turret', team: 'red', x: 1780, y: 650 },
   { type: 'turret', team: 'red', x: 1350, y: 650 },
   { type: 'turret', team: 'red', x: 650, y: 220 },
-  // 억제기
   { type: 'inh', team: 'blue', x: 180, y: 1620 },
   { type: 'inh', team: 'blue', x: 380, y: 1620 },
   { type: 'inh', team: 'blue', x: 380, y: 1820 },
@@ -53,7 +48,6 @@ app.get('/', (req, res) => {
         const ctx = canvas.getContext('2d');
         const MAP_SIZE = 2000;
 
-        // 고해상도(Retina/High-DPI) 대응 및 리사이즈
         let dpr = window.devicePixelRatio || 1;
         function resizeCanvas() {
           dpr = window.devicePixelRatio || 1;
@@ -63,14 +57,13 @@ app.get('/', (req, res) => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // 맵 이미지 로드
+        // WebP 포맷 이미지 적용
         const mapImage = new Image();
-        mapImage.src = 'images.png';
+        mapImage.src = 'map.webp';
 
         let players = {};
         const keys = {};
 
-        // 부드러운 카메라 이동을 위한 위치 변수
         let camX = 0;
         let camY = 0;
 
@@ -104,7 +97,6 @@ app.get('/', (req, res) => {
           latestStructures = data.structures;
         });
 
-        // 애니메이션 루프 (초당 60FPS 부드러운 카메라 보정 및 렌더링)
         function renderLoop() {
           draw(latestStructures);
           requestAnimationFrame(renderLoop);
@@ -114,14 +106,12 @@ app.get('/', (req, res) => {
         function draw(structures) {
           const me = players[socket.id];
           
-          // 화면 초기화
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           ctx.save();
           
           if (me) {
-            // 카메라 보간 (LERP: 화면 떨림 방지)
             if (camX === 0 && camY === 0) {
               camX = me.x;
               camY = me.y;
@@ -133,25 +123,21 @@ app.get('/', (req, res) => {
             const cssWidth = canvas.width / dpr;
             const cssHeight = canvas.height / dpr;
 
-            // 1. DPI 비율 보정
             ctx.scale(dpr, dpr);
-            
-            // 2. 화면 화면 중심 설정
             ctx.translate(cssWidth / 2, cssHeight / 2);
             
-            // 3. 줌 인 (좁은 시야 보정값)
-            const zoom = 3.5;
+            // 좁은 시야 연출 (4배 확대)
+            const zoom = 4.0;
             ctx.scale(zoom, zoom);
             
-            // 4. 내 캐릭터 중심으로 카메라 이동
             ctx.translate(-camX, -camY);
           }
 
-          // 이미지 렌더링 품질 설정
+          // 고화질 선명도 보정 설정
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
 
-          // 1. 맵 이미지 렌더링
+          // 1. 고화질 WebP 맵 이미지 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
@@ -163,33 +149,31 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기 렌더링
+          // 2. 포탑 및 억제기
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
-              ctx.fillRect(s.x - 5, s.y - 5, 10, 10);
+              ctx.fillRect(s.x - 4, s.y - 4, 8, 8);
               ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 1;
-              ctx.strokeRect(s.x - 5, s.y - 5, 10, 10);
+              ctx.lineWidth = 0.8;
+              ctx.strokeRect(s.x - 4, s.y - 4, 8, 8);
             } else if (s.type === 'inh') {
               ctx.fillStyle = s.team === 'blue' ? '#00e5ff' : '#ff0055';
-              ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.fill();
-              ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+              ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI * 2); ctx.fill();
+              ctx.strokeStyle = '#fff'; ctx.lineWidth = 0.8; ctx.stroke();
             }
           });
 
-          // 3. 플레이어 캐릭터 렌더링
+          // 3. 플레이어 캐릭터
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
 
-            // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.beginPath();
             ctx.arc(p.x + 0.5, p.y + 0.5, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
             ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
@@ -198,9 +182,8 @@ app.get('/', (req, res) => {
             ctx.strokeStyle = '#000000';
             ctx.stroke();
 
-            // 닉네임
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 3.5px sans-serif';
+            ctx.font = 'bold 4px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(isMe ? '나' : '적', p.x, p.y - 5);
           }
