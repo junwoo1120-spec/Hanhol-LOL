@@ -12,25 +12,49 @@ app.use(express.static(path.join(__dirname)));
 const MAP_SIZE = 2000;
 let players = {};
 
-// 맵 이미지 내 실제 구조물 위치 및 충돌 반경(Hitbox) 재설정
+// 이미지의 빨간색 동그라미 위치를 정확히 2000x2000 비율에 맞춘 충돌체 좌표
 const colliders = [
-  // 블루팀 넥서스 & 억제기 & 포탑
-  { x: 200, y: 1800, radius: 30 }, // 블루 넥서스 (길목 방해를 줄이기 위해 크기 및 좌표 보정)
-  { x: 180, y: 1620, radius: 35 }, // 블루 억제기 (탑)
-  { x: 320, y: 1680, radius: 35 }, // 블루 억제기 (미드)
-  { x: 380, y: 1820, radius: 35 }, // 블루 억제기 (바텀)
-  { x: 220, y: 1350, radius: 40 }, // 블루 1차 타워 (탑)
-  { x: 650, y: 1350, radius: 40 }, // 블루 1차 타워 (미드)
-  { x: 1350, y: 1780, radius: 40 }, // 블루 1차 타워 (바텀)
+  // --- 블루팀 (좌하단) ---
+  { x: 320, y: 1720, radius: 35 }, // 넥서스
+  { x: 260, y: 1670, radius: 22 }, // 쌍둥이 포탑 1
+  { x: 370, y: 1770, radius: 22 }, // 쌍둥이 포탑 2
+  
+  { x: 190, y: 1530, radius: 25 }, // 탑 억제기
+  { x: 420, y: 1580, radius: 25 }, // 미드 억제기
+  { x: 470, y: 1810, radius: 25 }, // 바텀 억제기
 
-  // 레드팀 넥서스 & 억제기 & 포탑
-  { x: 1800, y: 200, radius: 30 }, // 레드 넥서스
-  { x: 1620, y: 180, radius: 35 }, // 레드 억제기 (탑)
-  { x: 1680, y: 320, radius: 35 }, // 레드 억제기 (미드)
-  { x: 1820, y: 380, radius: 35 }, // 레드 억제기 (바텀)
-  { x: 650, y: 220, radius: 40 },  // 레드 1차 타워 (탑)
-  { x: 1350, y: 650, radius: 40 }, // 레드 1차 타워 (미드)
-  { x: 1780, y: 650, radius: 40 }  // 레드 1차 타워 (바텀)
+  { x: 190, y: 1420, radius: 25 }, // 탑 3차 포탑
+  { x: 500, y: 1500, radius: 25 }, // 미드 3차 포탑
+  { x: 580, y: 1810, radius: 25 }, // 바텀 3차 포탑
+
+  { x: 190, y: 1080, radius: 25 }, // 탑 2차 포탑
+  { x: 730, y: 1280, radius: 25 }, // 미드 2차 포탑
+  { x: 980, y: 1810, radius: 25 }, // 바텀 2차 포탑
+
+  { x: 190, y: 640,  radius: 25 }, // 탑 1차 포탑
+  { x: 920, y: 1100, radius: 25 }, // 미드 1차 포탑
+  { x: 1400, y: 1810, radius: 25 }, // 바텀 1차 포탑
+
+  // --- 레드팀 (우상단) ---
+  { x: 1680, y: 280,  radius: 35 }, // 넥서스
+  { x: 1630, y: 230,  radius: 22 }, // 쌍둥이 포탑 1
+  { x: 1740, y: 330,  radius: 22 }, // 쌍둥이 포탑 2
+
+  { x: 1530, y: 190,  radius: 25 }, // 탑 억제기
+  { x: 1580, y: 420,  radius: 25 }, // 미드 억제기
+  { x: 1810, y: 470,  radius: 25 }, // 바텀 억제기
+
+  { x: 1420, y: 190,  radius: 25 }, // 탑 3차 포탑
+  { x: 1500, y: 500,  radius: 25 }, // 미드 3차 포탑
+  { x: 1810, y: 580,  radius: 25 }, // 바텀 3차 포탑
+
+  { x: 1020, y: 190,  radius: 25 }, // 탑 2차 포탑
+  { x: 1270, y: 720,  radius: 25 }, // 미드 2차 포탑
+  { x: 1810, y: 1020, radius: 25 }, // 바텀 2차 포탑
+
+  { x: 600,  y: 190,  radius: 25 }, // 탑 1차 포탑
+  { x: 1080, y: 920,  radius: 25 }, // 미드 1차 포탑
+  { x: 1810, y: 1360, radius: 25 }  // 바텀 1차 포탑
 ];
 
 // 원형 충돌 검사 함수
@@ -40,7 +64,7 @@ function isColliding(x, y, playerRadius = 3.5) {
     const dy = y - c.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     if (distance < c.radius + playerRadius) {
-      return true; // 충돌 발생
+      return true; // 진입 불가
     }
   }
   return false;
@@ -163,7 +187,7 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 플레이어 캐릭터 렌더링
+          // 2. 플레이어 캐릭터만 렌더링
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -199,10 +223,10 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  // 블루팀 우물 스폰
+  // 스폰 위치: 블루팀 우물 안전 구역
   players[socket.id] = { 
-    x: 120, 
-    y: 1880, 
+    x: 180, 
+    y: 1820, 
     dirX: 0, 
     dirY: 0 
   };
