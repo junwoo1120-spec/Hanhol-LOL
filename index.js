@@ -12,65 +12,65 @@ app.use(express.static(path.join(__dirname)));
 const MAP_SIZE = 2000;
 let players = {};
 
-// 구조물 규격 표준화 (유형별 동일 크기)
+// 구조물 히트박스 반경 크기 정의
 const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
-const TURRET_RADIUS = 25;
+const TURRET_RADIUS = 22;
 
-// 소환사의 협곡 실제 구조에 맞춘 정밀 좌표 설정
+// 위치를 정확히 맞추기 위한 정밀 좌표 설정
 const colliders = [
   // ================= 블루팀 (좌하단) =================
   // 1. 넥서스 & 쌍둥이 포탑
-  { x: 260, y: 1740, radius: NEXUS_RADIUS },     // 블루 넥서스
-  { x: 310, y: 1710, radius: TURRET_RADIUS },    // 쌍둥이 포탑 1
-  { x: 290, y: 1690, radius: TURRET_RADIUS },    // 쌍둥이 포탑 2
+  { x: 230, y: 1770, radius: NEXUS_RADIUS },     // 블루 넥서스
+  { x: 285, y: 1715, radius: TURRET_RADIUS },    // 블루 쌍둥이 포탑 (상/우)
+  { x: 225, y: 1715, radius: TURRET_RADIUS },    // 블루 쌍둥이 포탑 (하/좌)
 
   // 2. 억제기 (3개)
-  { x: 190, y: 1610, radius: INHIBITOR_RADIUS }, // 탑 억제기
-  { x: 380, y: 1620, radius: INHIBITOR_RADIUS }, // 미드 억제기 (통로 확보를 위해 중앙 통로 우하단 배치)
-  { x: 390, y: 1810, radius: INHIBITOR_RADIUS }, // 바텀 억제기
+  { x: 190, y: 1620, radius: INHIBITOR_RADIUS }, // 블루 탑 억제기
+  { x: 370, y: 1630, radius: INHIBITOR_RADIUS }, // 블루 미드 억제기
+  { x: 380, y: 1810, radius: INHIBITOR_RADIUS }, // 블루 바텀 억제기
 
   // 3. 3차 포탑 (억제기 포탑)
-  { x: 190, y: 1510, radius: TURRET_RADIUS },    // 탑 3차 포탑
-  { x: 450, y: 1550, radius: TURRET_RADIUS },    // 미드 3차 포탑
-  { x: 490, y: 1810, radius: TURRET_RADIUS },    // 바텀 3차 포탑
+  { x: 190, y: 1510, radius: TURRET_RADIUS },    // 블루 탑 3차 포탑
+  { x: 440, y: 1560, radius: TURRET_RADIUS },    // 블루 미드 3차 포탑
+  { x: 490, y: 1810, radius: TURRET_RADIUS },    // 블루 바텀 3차 포탑
 
   // 4. 2차 포탑
-  { x: 190, y: 1100, radius: TURRET_RADIUS },    // 탑 2차 포탑
-  { x: 700, y: 1300, radius: TURRET_RADIUS },    // 미드 2차 포탑
-  { x: 900, y: 1810, radius: TURRET_RADIUS },    // 바텀 2차 포탑
+  { x: 190, y: 1120, radius: TURRET_RADIUS },    // 블루 탑 2차 포탑
+  { x: 670, y: 1330, radius: TURRET_RADIUS },    // 블루 미드 2차 포탑
+  { x: 880, y: 1810, radius: TURRET_RADIUS },    // 블루 바텀 2차 포탑
 
   // 5. 1차 포탑
-  { x: 210, y: 640,  radius: TURRET_RADIUS },    // 탑 1차 포탑
-  { x: 920, y: 1080, radius: TURRET_RADIUS },    // 미드 1차 포탑
-  { x: 1360, y: 1790, radius: TURRET_RADIUS },   // 바텀 1차 포탑
+  { x: 200, y: 650,  radius: TURRET_RADIUS },    // 블루 탑 1차 포탑
+  { x: 930, y: 1070, radius: TURRET_RADIUS },    // 블루 미드 1차 포탑
+  { x: 1350, y: 1810, radius: TURRET_RADIUS },   // 블루 바텀 1차 포탑
 
 
   // ================= 레드팀 (우상단) =================
   // 1. 넥서스 & 쌍둥이 포탑
-  { x: 1740, y: 260, radius: NEXUS_RADIUS },     // 레드 넥서스
-  { x: 1690, y: 290, radius: TURRET_RADIUS },    // 쌍둥이 포탑 1
-  { x: 1710, y: 310, radius: TURRET_RADIUS },    // 쌍둥이 포탑 2
+  { x: 1770, y: 230, radius: NEXUS_RADIUS },     // 레드 넥서스
+  { x: 1715, y: 285, radius: TURRET_RADIUS },    // 레드 쌍둥이 포탑
+  { x: 1715, y: 225, radius: TURRET_RADIUS },    // 레드 쌍둥이 포탑
 
   // 2. 억제기 (3개)
-  { x: 1610, y: 190, radius: INHIBITOR_RADIUS }, // 탑 억제기
-  { x: 1620, y: 380, radius: INHIBITOR_RADIUS }, // 미드 억제기 (통로 확보를 위해 중앙 통로 좌상단 배치)
-  { x: 1810, y: 390, radius: INHIBITOR_RADIUS }, // 바텀 억제기
+  { x: 1620, y: 190, radius: INHIBITOR_RADIUS }, // 레드 탑 억제기
+  { x: 1630, y: 370, radius: INHIBITOR_RADIUS }, // 레드 미드 억제기
+  { x: 1810, y: 380, radius: INHIBITOR_RADIUS }, // 레드 바텀 억제기
 
-  // 3. 3차 포탑 (억제기 포탑)
-  { x: 1510, y: 190, radius: TURRET_RADIUS },    // 탑 3차 포탑
-  { x: 1550, y: 450, radius: TURRET_RADIUS },    // 미드 3차 포탑
-  { x: 1810, y: 490, radius: TURRET_RADIUS },    // 바텀 3차 포탑
+  // 3. 3차 포탑
+  { x: 1510, y: 190, radius: TURRET_RADIUS },    // 레드 탑 3차 포탑
+  { x: 1560, y: 440, radius: TURRET_RADIUS },    // 레드 미드 3차 포탑
+  { x: 1810, y: 490, radius: TURRET_RADIUS },    // 레드 바텀 3차 포탑
 
   // 4. 2차 포탑
-  { x: 1100, y: 190, radius: TURRET_RADIUS },    // 탑 2차 포탑
-  { x: 1300, y: 700, radius: TURRET_RADIUS },    // 미드 2차 포탑
-  { x: 1810, y: 900, radius: TURRET_RADIUS },    // 바텀 2차 포탑
+  { x: 1120, y: 190, radius: TURRET_RADIUS },    // 레드 탑 2차 포탑
+  { x: 1330, y: 670, radius: TURRET_RADIUS },    // 레드 미드 2차 포탑
+  { x: 1810, y: 880, radius: TURRET_RADIUS },    // 레드 바텀 2차 포탑
 
   // 5. 1차 포탑
-  { x: 640,  y: 210, radius: TURRET_RADIUS },    // 탑 1차 포탑
-  { x: 1080, y: 920, radius: TURRET_RADIUS },    // 미드 1차 포탑
-  { x: 1790, y: 1360, radius: TURRET_RADIUS }    // 바텀 1차 포탑
+  { x: 650,  y: 200, radius: TURRET_RADIUS },    // 레드 탑 1차 포탑
+  { x: 1070, y: 930, radius: TURRET_RADIUS },    // 레드 미드 1차 포탑
+  { x: 1810, y: 1350, radius: TURRET_RADIUS }    // 레드 바텀 1차 포탑
 ];
 
 // 원형 충돌 검사
@@ -80,7 +80,7 @@ function isColliding(x, y, playerRadius = 3.5) {
     const dy = y - c.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     if (distance < c.radius + playerRadius) {
-      return true; // 충돌 (진입 불가)
+      return true;
     }
   }
   return false;
@@ -106,6 +106,11 @@ app.get('/', (req, res) => {
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
         const MAP_SIZE = 2000;
+
+        // 디버그 설정 (히트박스 가시화)
+        const SHOW_HITBOXES = true; // true로 두면 빨간 충돌 범위가 표시됩니다.
+
+        const colliders = ${JSON.stringify(colliders)};
 
         let dpr = window.devicePixelRatio || 1;
         function resizeCanvas() {
@@ -191,7 +196,7 @@ app.get('/', (req, res) => {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
 
-          // 1. 맵 이미지 렌더링
+          // 1. 배경 맵 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
@@ -203,7 +208,20 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 플레이어 캐릭터만 렌더링
+          // 2. 디버그 오버레이: 충돌 구역(히트박스) 빨간 원으로 렌더링
+          if (SHOW_HITBOXES) {
+            for (let c of colliders) {
+              ctx.fillStyle = 'rgba(255, 0, 0, 0.35)';
+              ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+              ctx.lineWidth = 0.8;
+              ctx.beginPath();
+              ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.stroke();
+            }
+          }
+
+          // 3. 플레이어 캐릭터 렌더링
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -214,7 +232,7 @@ app.get('/', (req, res) => {
             ctx.arc(p.x + 0.5, p.y + 0.5, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터 원형
+            // 본체
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
             ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
@@ -239,7 +257,7 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  // 스폰 위치: 블루팀 우물 (안전지대)
+  // 스폰 위치: 블루팀 우물
   players[socket.id] = { 
     x: 120, 
     y: 1880, 
