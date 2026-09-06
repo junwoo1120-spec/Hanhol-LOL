@@ -7,6 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
+// GitHub 저장소 내의 이미지/정적 파일들을 서버에서 불러올 수 있도록 설정
 app.use(express.static(__dirname));
 
 const MAP_SIZE = 2000;
@@ -39,28 +40,21 @@ app.get('/', (req, res) => {
       <title>Summoner's Rift Classic</title>
       <style>
         body { margin: 0; background: #000; color: white; text-align: center; font-family: sans-serif; overflow: hidden; }
-        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
+        canvas { display: block; margin: 0 auto; background: #000; }
       </style>
     </head>
     <body>
-      <canvas id="game"></canvas>
+      <canvas id="game" width="1024" height="600"></canvas>
       <script src="/socket.io/socket.io.js"></script>
       <script>
         const socket = io();
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
-        
-        function resizeCanvas() {
-          canvas.width = window.innerWidth;
-          canvas.height = window.innerHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-
         const MAP_SIZE = 2000;
 
+        // GitHub 저장소에 올린 맵 이미지 파일 로드
         const mapImage = new Image();
-        mapImage.src = '/image.png';
+        mapImage.src = '/map.png'; // 저장소에 올린 파일명과 일치해야 합니다. (예: map.jpg, map.webp 등)
 
         let players = {};
         const keys = {};
@@ -105,10 +99,11 @@ app.get('/', (req, res) => {
             ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
           }
 
-          // 맵 이미지 렌더링 (2000x2000)
+          // 1. 저장소의 맵 이미지 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
+            // 이미지 로딩 중일 때 표시
             ctx.fillStyle = '#111111';
             ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
             ctx.fillStyle = '#ffffff';
@@ -117,7 +112,7 @@ app.get('/', (req, res) => {
             ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 포탑 및 억제기
+          // 2. 포탑 및 억제기
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
@@ -132,7 +127,7 @@ app.get('/', (req, res) => {
             }
           });
 
-          // 플레이어 캐릭터 렌더링
+          // 3. 플레이어 캐릭터 렌더링
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -143,7 +138,7 @@ app.get('/', (req, res) => {
             ctx.arc(p.x + 2, p.y + 2, 15, 0, Math.PI * 2);
             ctx.fill();
 
-            // 캐릭터
+            // 캐릭터 원형 (나: 민트, 상대: 노랑)
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
             ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
@@ -188,7 +183,6 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  // 원래 이동 속도 유지 (SPEED = 4)
   const SPEED = 4;
 
   for (let id in players) {
