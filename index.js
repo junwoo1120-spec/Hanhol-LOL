@@ -9,27 +9,26 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
-// 맵 실제 탐색 크기 (기존 2000 -> 8000으로 확장)
-const MAP_SIZE = 8000;
+const MAP_SIZE = 2000;
 let players = {};
 
-// 포탑 및 억제기 위치 (맵 크기에 맞게 비례 조정)
+// 포탑 및 억제기 데이터
 const structures = [
   // 블루팀 포탑
-  { type: 'turret', team: 'blue', x: 880, y: 5400 },
-  { type: 'turret', team: 'blue', x: 2600, y: 5400 },
-  { type: 'turret', team: 'blue', x: 5400, y: 7120 },
+  { type: 'turret', team: 'blue', x: 220, y: 1350 },
+  { type: 'turret', team: 'blue', x: 650, y: 1350 },
+  { type: 'turret', team: 'blue', x: 1350, y: 1780 },
   // 레드팀 포탑
-  { type: 'turret', team: 'red', x: 7120, y: 2600 },
-  { type: 'turret', team: 'red', x: 5400, y: 2600 },
-  { type: 'turret', team: 'red', x: 2600, y: 880 },
+  { type: 'turret', team: 'red', x: 1780, y: 650 },
+  { type: 'turret', team: 'red', x: 1350, y: 650 },
+  { type: 'turret', team: 'red', x: 650, y: 220 },
   // 억제기
-  { type: 'inh', team: 'blue', x: 720, y: 6480 },
-  { type: 'inh', team: 'blue', x: 1520, y: 6480 },
-  { type: 'inh', team: 'blue', x: 1520, y: 7280 },
-  { type: 'inh', team: 'red', x: 6480, y: 720 },
-  { type: 'inh', team: 'red', x: 6480, y: 1520 },
-  { type: 'inh', team: 'red', x: 7280, y: 1520 }
+  { type: 'inh', team: 'blue', x: 180, y: 1620 },
+  { type: 'inh', team: 'blue', x: 380, y: 1620 },
+  { type: 'inh', team: 'blue', x: 380, y: 1820 },
+  { type: 'inh', team: 'red', x: 1620, y: 180 },
+  { type: 'inh', team: 'red', x: 1620, y: 380 },
+  { type: 'inh', team: 'red', x: 1820, y: 380 }
 ];
 
 app.get('/', (req, res) => {
@@ -51,7 +50,6 @@ app.get('/', (req, res) => {
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
         
-        // 화면 크기에 맞게 해상도 자동 조절
         function resizeCanvas() {
           canvas.width = window.innerWidth;
           canvas.height = window.innerHeight;
@@ -59,7 +57,7 @@ app.get('/', (req, res) => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        const MAP_SIZE = 8000;
+        const MAP_SIZE = 2000;
 
         const mapImage = new Image();
         mapImage.src = '/image.png';
@@ -102,43 +100,39 @@ app.get('/', (req, res) => {
           ctx.fillStyle = '#000000';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          // 이미지 화질 보정 옵션 (선명도 유지)
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-
           ctx.save();
           if (me) {
             ctx.translate(canvas.width / 2 - me.x, canvas.height / 2 - me.y);
           }
 
-          // 1. 대형 맵 이미지 렌더링 (8000x8000)
+          // 맵 이미지 렌더링 (2000x2000)
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
             ctx.fillStyle = '#111111';
             ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
             ctx.fillStyle = '#ffffff';
-            ctx.font = '24px sans-serif';
+            ctx.font = '16px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('고화질 맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
+            ctx.fillText('맵 이미지 로딩 중...', MAP_SIZE / 2, MAP_SIZE / 2);
           }
 
-          // 2. 포탑 및 억제기
+          // 포탑 및 억제기
           structures.forEach(s => {
             if (s.type === 'turret') {
               ctx.fillStyle = s.team === 'blue' ? '#2b7fff' : '#ff4d4d';
-              ctx.fillRect(s.x - 30, s.y - 30, 60, 60);
+              ctx.fillRect(s.x - 12, s.y - 12, 24, 24);
               ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 4;
-              ctx.strokeRect(s.x - 30, s.y - 30, 60, 60);
+              ctx.lineWidth = 2;
+              ctx.strokeRect(s.x - 12, s.y - 12, 24, 24);
             } else if (s.type === 'inh') {
               ctx.fillStyle = s.team === 'blue' ? '#00e5ff' : '#ff0055';
-              ctx.beginPath(); ctx.arc(s.x, s.y, 35, 0, Math.PI * 2); ctx.fill();
-              ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke();
+              ctx.beginPath(); ctx.arc(s.x, s.y, 14, 0, Math.PI * 2); ctx.fill();
+              ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
             }
           });
 
-          // 3. 플레이어 캐릭터
+          // 플레이어 캐릭터 렌더링
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -146,23 +140,23 @@ app.get('/', (req, res) => {
             // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.beginPath();
-            ctx.arc(p.x + 4, p.y + 4, 30, 0, Math.PI * 2);
+            ctx.arc(p.x + 2, p.y + 2, 15, 0, Math.PI * 2);
             ctx.fill();
 
             // 캐릭터
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 30, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, 15, 0, Math.PI * 2);
             ctx.fill();
-            ctx.lineWidth = 5;
+            ctx.lineWidth = 3;
             ctx.strokeStyle = '#000000';
             ctx.stroke();
 
             // 닉네임
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 18px sans-serif';
+            ctx.font = 'bold 12px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 42);
+            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 22);
           }
 
           ctx.restore();
@@ -174,10 +168,9 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  // 시작 위치 조정 (블루팀 샘)
   players[socket.id] = { 
-    x: 800, 
-    y: MAP_SIZE - 800, 
+    x: 220, 
+    y: MAP_SIZE - 220, 
     dirX: 0, 
     dirY: 0 
   };
@@ -195,8 +188,8 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  // 맵이 넓어진 만큼 이동 속도 증가 (기존 4 -> 12)
-  const SPEED = 12;
+  // 원래 이동 속도 유지 (SPEED = 4)
+  const SPEED = 4;
 
   for (let id in players) {
     const p = players[id];
@@ -212,8 +205,8 @@ setInterval(() => {
     const nextX = p.x + moveX * SPEED;
     const nextY = p.y + moveY * SPEED;
 
-    if (nextX >= 100 && nextX <= MAP_SIZE - 100) p.x = nextX;
-    if (nextY >= 100 && nextY <= MAP_SIZE - 100) p.y = nextY;
+    if (nextX >= 50 && nextX <= MAP_SIZE - 50) p.x = nextX;
+    if (nextY >= 50 && nextY <= MAP_SIZE - 50) p.y = nextY;
   }
 
   io.emit('gameState', { players, structures });
