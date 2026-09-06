@@ -17,7 +17,7 @@ const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
 const TURRET_RADIUS = 22;
 
-// 직접 클릭하신 32개 실제 맵 좌표 매핑 데이터
+// 정제된 구조물 충돌체 좌표 (잘못 클릭한 {1421, 786} 제거)
 const colliders = [
   // === 블루팀 (좌하단) ===
   { x: 225, y: 1766, radius: NEXUS_RADIUS },     // 블루 넥서스
@@ -39,7 +39,6 @@ const colliders = [
   { x: 149, y: 597,  radius: TURRET_RADIUS },    // 블루 탑 1차
   { x: 798, y: 1136, radius: TURRET_RADIUS },    // 블루 미드 1차
   { x: 1418, y: 1852, radius: TURRET_RADIUS },   // 블루 바텀 1차
-
 
   // === 레드팀 (우상단) ===
   { x: 1786, y: 223, radius: NEXUS_RADIUS },     // 레드 넥서스
@@ -63,7 +62,8 @@ const colliders = [
   { x: 1867, y: 1388, radius: TURRET_RADIUS }    // 레드 바텀 1차
 ];
 
-function isColliding(x, y, playerRadius = 3.5) {
+// 원형 충돌 검사 (플레이어 반지름 4.2 반영)
+function isColliding(x, y, playerRadius = 4.2) {
   for (let c of colliders) {
     const dx = x - c.x;
     const dy = y - c.y;
@@ -182,7 +182,7 @@ app.get('/', (req, res) => {
             ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
           }
 
-          // 2. 플레이어 캐릭터 렌더링
+          // 2. 플레이어 캐릭터 렌더링 (크기 1.2배: 반지름 4.2)
           for (let id in players) {
             const p = players[id];
             const isMe = id === socket.id;
@@ -190,13 +190,13 @@ app.get('/', (req, res) => {
             // 그림자
             ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
             ctx.beginPath();
-            ctx.arc(p.x + 0.5, p.y + 0.5, 3.5, 0, Math.PI * 2);
+            ctx.arc(p.x + 0.5, p.y + 0.5, 4.2, 0, Math.PI * 2);
             ctx.fill();
 
             // 본체
             ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
             ctx.beginPath();
-            ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2);
             ctx.fill();
             ctx.lineWidth = 0.8;
             ctx.strokeStyle = '#000000';
@@ -204,9 +204,9 @@ app.get('/', (req, res) => {
 
             // 이름 표기
             ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 4px sans-serif';
+            ctx.font = 'bold 4.5px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 5);
+            ctx.fillText(isMe ? '나' : '적', p.x, p.y - 6);
           }
 
           ctx.restore();
@@ -218,7 +218,7 @@ app.get('/', (req, res) => {
 });
 
 io.on('connection', (socket) => {
-  // 안전한 스폰 위치 (우물)
+  // 블루팀 우물 스폰
   players[socket.id] = { 
     x: 100, 
     y: 1900, 
@@ -239,8 +239,8 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  // 이동 속도 (필요에 따라 조절 가능)
-  const SPEED = 2.0;
+  // 캐릭터 이동 속도 원상 복구 (0.75)
+  const SPEED = 0.75;
 
   for (let id in players) {
     const p = players[id];
