@@ -57,9 +57,9 @@ app.get('/', (req, res) => {
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // WebP 포맷 이미지 적용
+        // 맵 이미지 파일명 web.webp로 변경
         const mapImage = new Image();
-        mapImage.src = 'map.webp';
+        mapImage.src = 'web.webp';
 
         let players = {};
         const keys = {};
@@ -137,7 +137,7 @@ app.get('/', (req, res) => {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
 
-          // 1. 고화질 WebP 맵 이미지 렌더링
+          // 1. web.webp 맵 이미지 렌더링
           if (mapImage.complete && mapImage.naturalWidth !== 0) {
             ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           } else {
