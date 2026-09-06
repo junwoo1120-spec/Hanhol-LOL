@@ -54,7 +54,7 @@ app.get('/', (req, res) => {
 
         // GitHub 저장소에 올린 맵 이미지 파일 로드
         const mapImage = new Image();
-        mapImage.src = '/map.png'; // 저장소에 올린 파일명과 일치해야 합니다. (예: map.jpg, map.webp 등)
+        mapImage.src = '/image.png'; // 저장소에 올린 파일명과 일치해야 합니다. (예: map.jpg, map.webp 등)
 
         let players = {};
         const keys = {};
