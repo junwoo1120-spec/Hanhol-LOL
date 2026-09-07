@@ -1,39 +1,11 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs');
 const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
-
-// === 파일 기반 DB 로직 안전화 ===
-const DB_FILE = path.join(__dirname, 'users.json');
-
-function loadUsersDB() {
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      const data = fs.readFileSync(DB_FILE, 'utf8');
-      return JSON.parse(data || '{}');
-    }
-  } catch (err) {
-    console.error('DB 로드 에러:', err);
-  }
-  return {};
-}
-
-function saveUsersDB(data) {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
-  } catch (err) {
-    console.error('DB 저장 에러:', err);
-  }
-}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -102,56 +74,6 @@ function isColliding(x, y, playerRadius = 4.2) {
   return false;
 }
 
-// 회원가입 API
-app.post('/api/register', async (req, res) => {
-  try {
-    const username = req.body.username ? req.body.username.trim() : '';
-    const password = req.body.password ? req.body.password.trim() : '';
-
-    if (!username || !password) {
-      return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
-    }
-
-    const usersDB = loadUsersDB();
-
-    if (usersDB[username]) {
-      return res.status(400).json({ message: '이미 사용 중인 아이디/닉네임입니다.' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    usersDB[username] = { username, password: hashedPassword };
-    saveUsersDB(usersDB);
-
-    const token = jwt.sign({ username }, JWT_SECRET);
-    res.json({ token, username });
-  } catch (err) {
-    console.error('회원가입 에러:', err);
-    res.status(500).json({ message: '회원가입 처리 중 오류가 발생했습니다.' });
-  }
-});
-
-// 로그인 API
-app.post('/api/login', async (req, res) => {
-  try {
-    const username = req.body.username ? req.body.username.trim() : '';
-    const password = req.body.password ? req.body.password.trim() : '';
-
-    const usersDB = loadUsersDB();
-    const user = usersDB[username];
-
-    if (!user) return res.status(400).json({ message: '아이디 또는 비밀번호가 틀렸습니다.' });
-
-    const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) return res.status(400).json({ message: '아이디 또는 비밀번호가 틀렸습니다.' });
-
-    const token = jwt.sign({ username: user.username }, JWT_SECRET);
-    res.json({ token, username: user.username });
-  } catch (err) {
-    console.error('로그인 에러:', err);
-    res.status(500).json({ message: '로그인 처리 중 오류가 발생했습니다.' });
-  }
-});
-
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -175,18 +97,11 @@ app.get('/', (req, res) => {
         .auth-box input {
           width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #555; background: #333; color: #fff;
         }
-        .password-container { position: relative; width: 100%; }
-        .password-container input { padding-right: 40px; }
-        .toggle-password {
-          position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-          cursor: pointer; user-select: none; font-size: 16px;
-        }
         .auth-box button {
           width: 100%; padding: 10px; margin-top: 12px; border-radius: 6px; border: none; background: #0088ff; color: #fff; font-weight: bold; cursor: pointer;
         }
         .auth-box button:hover { background: #0066cc; }
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
-        .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
 
         /* === 상단 플레이어 리스트 UI === */
         #player-list-container {
@@ -262,19 +177,13 @@ app.get('/', (req, res) => {
       </style>
     </head>
     <body>
+      <!-- 게스트 로그인 화면 -->
       <div id="auth-screen">
         <div class="auth-box">
-          <h2 id="auth-title">로그인</h2>
-          <div class="warning-text">※ 아이디는 한글 설정이 가능하며, 실명 또는 본인을 알아볼 수 있는 닉네임으로 설정해 주세요.</div>
-          <input type="text" id="username" placeholder="아이디 (한글 가능)" />
-          
-          <div class="password-container">
-            <input type="password" id="password" placeholder="비밀번호" />
-            <span class="toggle-password" id="eye-icon" onclick="togglePasswordVisibility()">👁️</span>
-          </div>
-
-          <button id="auth-btn" onclick="handleAuth()">로그인</button>
-          <div class="toggle-text" id="toggle-btn" onclick="toggleAuthMode()">회원가입하러 가기</div>
+          <h2>게스트 입장</h2>
+          <div class="warning-text">※ 플레이에 사용할 닉네임을 입력해 주세요. (1회성)</div>
+          <input type="text" id="username" placeholder="닉네임 입력 (한글 가능)" maxlength="12" />
+          <button id="auth-btn" onclick="handleGuestLogin()">게임 시작</button>
         </div>
       </div>
 
@@ -306,30 +215,10 @@ app.get('/', (req, res) => {
       <canvas id="game"></canvas>
       <script src="/socket.io/socket.io.js"></script>
       <script>
-        let isSignUpMode = false;
         let myUsername = '';
         let socket = null;
         let chatTargetMode = 'all';
         let isPlayerListExpanded = false;
-
-        function togglePasswordVisibility() {
-          const passInput = document.getElementById('password');
-          const eyeIcon = document.getElementById('eye-icon');
-          if (passInput.type === 'password') {
-            passInput.type = 'text';
-            eyeIcon.innerText = '🙈';
-          } else {
-            passInput.type = 'password';
-            eyeIcon.innerText = '👁️';
-          }
-        }
-
-        function toggleAuthMode() {
-          isSignUpMode = !isSignUpMode;
-          document.getElementById('auth-title').innerText = isSignUpMode ? '회원가입' : '로그인';
-          document.getElementById('auth-btn').innerText = isSignUpMode ? '회원가입' : '로그인';
-          document.getElementById('toggle-btn').innerText = isSignUpMode ? '로그인하러 가기' : '회원가입하러 가기';
-        }
 
         function togglePlayerList() {
           isPlayerListExpanded = !isPlayerListExpanded;
@@ -361,29 +250,25 @@ app.get('/', (req, res) => {
           });
         }
 
-        async function handleAuth() {
-          const username = document.getElementById('username').value.trim();
-          const password = document.getElementById('password').value.trim();
+        function handleGuestLogin() {
+          const usernameInput = document.getElementById('username');
+          const username = usernameInput.value.trim();
 
-          if (!username || !password) return alert('아이디와 비밀번호를 모두 입력해주세요.');
+          if (!username) return alert('사용할 닉네임을 입력해주세요.');
 
-          const endpoint = isSignUpMode ? '/api/register' : '/api/login';
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-          });
-
-          const data = await res.json();
-          if (!res.ok) return alert(data.message);
-
-          myUsername = data.username;
+          myUsername = username;
           document.getElementById('auth-screen').style.display = 'none';
           document.getElementById('player-list-container').style.display = 'flex';
           document.getElementById('chat-container').style.display = 'flex';
           document.getElementById('minimap-container').style.display = 'block';
-          initGame(data.token);
+          
+          initGame(myUsername);
         }
+
+        // Enter 키로도 게스트 로그인 가능
+        document.getElementById('username').addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') handleGuestLogin();
+        });
 
         function setChatMode(mode) {
           chatTargetMode = mode;
@@ -428,8 +313,8 @@ app.get('/', (req, res) => {
           msgContainer.scrollTop = msgContainer.scrollHeight;
         }
 
-        function initGame(token) {
-          socket = io({ auth: { token } });
+        function initGame(username) {
+          socket = io({ auth: { username } });
           const canvas = document.getElementById('game');
           const ctx = canvas.getContext('2d');
 
@@ -591,15 +476,12 @@ app.get('/', (req, res) => {
   `);
 });
 
+// 소켓 커넥션 시 닉네임 유효성 확인
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-  if (!token) return next(new Error('인증 에러'));
-
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) return next(new Error('인증 에러'));
-    socket.username = decoded.username;
-    next();
-  });
+  const username = socket.handshake.auth.username;
+  if (!username) return next(new Error('닉네임이 올바르지 않습니다.'));
+  socket.username = username;
+  next();
 });
 
 io.on('connection', (socket) => {
