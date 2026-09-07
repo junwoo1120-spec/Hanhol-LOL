@@ -43,7 +43,6 @@ app.use(express.static(path.join(__dirname)));
 const MAP_SIZE = 2000;
 let players = {};
 
-// === 현재 접속자 기반 팀 균형 배정 함수 ===
 function getBalancedTeam() {
   let blueCount = 0;
   let redCount = 0;
@@ -105,16 +104,21 @@ function isColliding(x, y, playerRadius = 4.2) {
   return false;
 }
 
-// 회원가입 API
+// 회원가입 API (아이디 중복 검사 적용)
 app.post('/api/register', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
+    const username = req.body.username ? req.body.username.trim() : '';
+    const password = req.body.password ? req.body.password.trim() : '';
+
+    if (!username || !password) {
+      return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
+    }
 
     usersDB = loadUsersDB();
 
+    // 이미 등록된 아이디/닉네임인지 확인
     if (usersDB[username]) {
-      return res.status(400).json({ message: '이미 존재하는 아이디입니다.' });
+      return res.status(400).json({ message: '이미 사용 중인 아이디/닉네임입니다.' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -132,7 +136,8 @@ app.post('/api/register', async (req, res) => {
 // 로그인 API
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const username = req.body.username ? req.body.username.trim() : '';
+    const password = req.body.password ? req.body.password.trim() : '';
 
     usersDB = loadUsersDB();
     const user = usersDB[username];
@@ -194,16 +199,28 @@ app.get('/', (req, res) => {
           box-shadow: 0 5px 18px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
         }
         #chat-messages {
-          height: 192px; padding: 12px; overflow-y: auto; font-size: 15px;
+          height: 192px; padding: 12px; overflow-y: auto; font-size: 14px;
           display: flex; flex-direction: column; gap: 7px; word-break: break-all;
         }
         #chat-messages::-webkit-scrollbar { width: 5px; }
         #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
         .chat-msg { color: #eee; line-height: 1.3; }
+        .chat-msg .type { font-size: 11px; font-weight: bold; margin-right: 4px; padding: 1px 4px; border-radius: 3px; }
+        .chat-msg .type.all { background: #555; color: #fff; }
+        .chat-msg .type.team { background: #15803d; color: #fff; }
         .chat-msg .sender { font-weight: bold; }
         .chat-msg .sender.blue { color: #0088ff; }
         .chat-msg .sender.red { color: #ff3333; }
         .chat-msg .system { color: #ffea00; font-style: italic; }
+        
+        #chat-mode-bar {
+          display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4);
+        }
+        .mode-btn {
+          flex: 1; background: transparent; border: none; color: #888; padding: 6px 0; font-size: 12px; font-weight: bold; cursor: pointer;
+        }
+        .mode-btn.active { color: #fff; background: rgba(255, 255, 255, 0.15); }
+        
         #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
         #chat-input {
           flex: 1; background: transparent; border: none; padding: 10px 12px;
@@ -244,8 +261,12 @@ app.get('/', (req, res) => {
 
       <div id="chat-container">
         <div id="chat-messages"></div>
+        <div id="chat-mode-bar">
+          <button class="mode-btn active" id="btn-mode-all" onclick="setChatMode('all')">전체 (Shift+Enter)</button>
+          <button class="mode-btn" id="btn-mode-team" onclick="setChatMode('team')">팀 (Shift+Enter)</button>
+        </div>
         <div id="chat-input-container">
-          <input type="text" id="chat-input" placeholder="메시지 입력 (Enter)" maxlength="100" />
+          <input type="text" id="chat-input" placeholder="전체 메시지 입력..." maxlength="100" />
           <button id="chat-send-btn" onclick="sendChatMessage()">전송</button>
         </div>
       </div>
@@ -260,6 +281,7 @@ app.get('/', (req, res) => {
         let isSignUpMode = false;
         let myUsername = '';
         let socket = null;
+        let chatTargetMode = 'all';
 
         function togglePasswordVisibility() {
           const passInput = document.getElementById('password');
@@ -303,16 +325,33 @@ app.get('/', (req, res) => {
           initGame(data.token);
         }
 
+        function setChatMode(mode) {
+          chatTargetMode = mode;
+          const btnAll = document.getElementById('btn-mode-all');
+          const btnTeam = document.getElementById('btn-mode-team');
+          const chatInput = document.getElementById('chat-input');
+
+          if (mode === 'all') {
+            btnAll.classList.add('active');
+            btnTeam.classList.remove('active');
+            chatInput.placeholder = '전체 메시지 입력...';
+          } else {
+            btnTeam.classList.add('active');
+            btnAll.classList.remove('active');
+            chatInput.placeholder = '팀 메시지 입력...';
+          }
+        }
+
         function sendChatMessage() {
           const chatInput = document.getElementById('chat-input');
           const text = chatInput.value.trim();
           if (text && socket) {
-            socket.emit('chatMessage', text);
+            socket.emit('chatMessage', { text, targetMode: chatTargetMode });
             chatInput.value = '';
           }
         }
 
-        function appendChatMessage(sender, text, team = '', isSystem = false) {
+        function appendChatMessage(sender, text, team = '', isSystem = false, targetMode = 'all') {
           const msgContainer = document.getElementById('chat-messages');
           const msgDiv = document.createElement('div');
           msgDiv.className = 'chat-msg';
@@ -321,7 +360,8 @@ app.get('/', (req, res) => {
             msgDiv.innerHTML = \`<span class="system">\${text}</span>\`;
           } else {
             const teamClass = team === 'blue' ? 'blue' : (team === 'red' ? 'red' : '');
-            msgDiv.innerHTML = \`<span class="sender \${teamClass}">\${sender}:</span> \${text}\`;
+            const typeLabel = targetMode === 'team' ? '<span class="type team">팀</span>' : '<span class="type all">전체</span>';
+            msgDiv.innerHTML = \`\${typeLabel}<span class="sender \${teamClass}">\${sender}:</span> \${text}\`;
           }
 
           msgContainer.appendChild(msgDiv);
@@ -358,7 +398,11 @@ app.get('/', (req, res) => {
           chatInput.addEventListener('keydown', (e) => {
             e.stopPropagation();
             if (e.key === 'Enter') {
-              sendChatMessage();
+              if (e.shiftKey) {
+                setChatMode(chatTargetMode === 'all' ? 'team' : 'all');
+              } else {
+                sendChatMessage();
+              }
             }
           });
 
@@ -388,7 +432,7 @@ app.get('/', (req, res) => {
           socket.on('gameState', (data) => { players = data.players; });
 
           socket.on('chatMessage', (data) => {
-            appendChatMessage(data.username, data.text, data.team, data.isSystem);
+            appendChatMessage(data.username, data.text, data.team, data.isSystem, data.targetMode);
           });
 
           function renderLoop() {
@@ -445,8 +489,13 @@ app.get('/', (req, res) => {
               miniCtx.drawImage(mapImage, 0, 0, 180, 180);
             }
 
+            const me = players[socket.id];
+
             for (let id in players) {
               const p = players[id];
+
+              if (me && p.team !== me.team) continue;
+
               const mx = p.x * scale;
               const my = p.y * scale;
 
@@ -459,7 +508,6 @@ app.get('/', (req, res) => {
               miniCtx.stroke();
             }
 
-            const me = players[socket.id];
             if (me) {
               const cssWidth = canvas.width / dpr;
               const cssHeight = canvas.height / dpr;
@@ -510,7 +558,8 @@ io.on('connection', (socket) => {
   io.emit('chatMessage', {
     username: '시스템',
     text: `${socket.username}님이 ${teamName}으로 입장하셨습니다.`,
-    isSystem: true
+    isSystem: true,
+    targetMode: 'all'
   });
 
   socket.on('keyMove', (dir) => {
@@ -520,14 +569,39 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('chatMessage', (text) => {
-    if (typeof text === 'string' && text.trim().length > 0 && players[socket.id]) {
-      io.emit('chatMessage', {
-        username: socket.username,
-        text: text.trim().substring(0, 100),
-        team: players[socket.id].team,
-        isSystem: false
-      });
+  socket.on('chatMessage', (data) => {
+    const senderPlayer = players[socket.id];
+    if (!senderPlayer) return;
+
+    let text = '';
+    let targetMode = 'all';
+
+    if (typeof data === 'string') {
+      text = data;
+    } else if (typeof data === 'object' && data.text) {
+      text = data.text;
+      targetMode = data.targetMode || 'all';
+    }
+
+    text = text.trim().substring(0, 100);
+    if (!text) return;
+
+    const payload = {
+      username: socket.username,
+      text: text,
+      team: senderPlayer.team,
+      isSystem: false,
+      targetMode: targetMode
+    };
+
+    if (targetMode === 'team') {
+      for (let id in players) {
+        if (players[id].team === senderPlayer.team) {
+          io.to(id).emit('chatMessage', payload);
+        }
+      }
+    } else {
+      io.emit('chatMessage', payload);
     }
   });
 
@@ -536,7 +610,8 @@ io.on('connection', (socket) => {
       io.emit('chatMessage', {
         username: '시스템',
         text: `${players[socket.id].username}님이 퇴장하셨습니다.`,
-        isSystem: true
+        isSystem: true,
+        targetMode: 'all'
       });
       delete players[socket.id];
     }
