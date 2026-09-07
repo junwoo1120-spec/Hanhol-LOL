@@ -18,6 +18,7 @@ app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
+let joinCounter = 0; // 팀 지정을 위한 접속 순서 카운터
 
 const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
@@ -142,9 +143,9 @@ app.get('/', (req, res) => {
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; }
         .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
 
-        /* === 채팅창 UI 스타일 === */
+        /* === 왼쪽 아래 채팅 UI === */
         #chat-container {
-          position: absolute; right: 20px; bottom: 20px; width: 280px;
+          position: absolute; left: 20px; bottom: 20px; width: 280px;
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
           border-radius: 8px; z-index: 5; display: none; flex-direction: column;
           box-shadow: 0 4px 15px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
@@ -156,7 +157,9 @@ app.get('/', (req, res) => {
         #chat-messages::-webkit-scrollbar { width: 4px; }
         #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
         .chat-msg { color: #eee; line-height: 1.3; }
-        .chat-msg .sender { font-weight: bold; color: #00ffff; }
+        .chat-msg .sender { font-weight: bold; }
+        .chat-msg .sender.blue { color: #0088ff; }
+        .chat-msg .sender.red { color: #ff3333; }
         .chat-msg .system { color: #ffea00; font-style: italic; }
         #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
         #chat-input {
@@ -168,6 +171,15 @@ app.get('/', (req, res) => {
           font-size: 12px; font-weight: bold; cursor: pointer; border-bottom-right-radius: 7px;
         }
         #chat-send-btn:hover { background: #0066cc; }
+
+        /* === 오른쪽 아래 미니맵 UI === */
+        #minimap-container {
+          position: absolute; right: 20px; bottom: 20px; width: 180px; height: 180px;
+          background: rgba(0, 0, 0, 0.8); border: 2px solid rgba(255, 255, 255, 0.4);
+          border-radius: 6px; z-index: 5; display: none; overflow: hidden;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+        }
+        #minimap { width: 100%; height: 100%; display: block; }
       </style>
     </head>
     <body>
@@ -187,13 +199,18 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- 오른쪽 아래 채팅 컨테이너 -->
+      <!-- 왼쪽 아래 채팅창 -->
       <div id="chat-container">
         <div id="chat-messages"></div>
         <div id="chat-input-container">
           <input type="text" id="chat-input" placeholder="메시지 입력 (Enter)" maxlength="100" />
           <button id="chat-send-btn" onclick="sendChatMessage()">전송</button>
         </div>
+      </div>
+
+      <!-- 오른쪽 아래 미니맵 -->
+      <div id="minimap-container">
+        <canvas id="minimap" width="180" height="180"></canvas>
       </div>
 
       <canvas id="game"></canvas>
@@ -241,6 +258,7 @@ app.get('/', (req, res) => {
           myUsername = data.username;
           document.getElementById('auth-screen').style.display = 'none';
           document.getElementById('chat-container').style.display = 'flex';
+          document.getElementById('minimap-container').style.display = 'block';
           initGame(data.token);
         }
 
@@ -253,7 +271,7 @@ app.get('/', (req, res) => {
           }
         }
 
-        function appendChatMessage(sender, text, isSystem = false) {
+        function appendChatMessage(sender, text, team = '', isSystem = false) {
           const msgContainer = document.getElementById('chat-messages');
           const msgDiv = document.createElement('div');
           msgDiv.className = 'chat-msg';
@@ -261,7 +279,8 @@ app.get('/', (req, res) => {
           if (isSystem) {
             msgDiv.innerHTML = \`<span class="system">\${text}</span>\`;
           } else {
-            msgDiv.innerHTML = \`<span class="sender">\${sender}:</span> \${text}\`;
+            const teamClass = team === 'blue' ? 'blue' : (team === 'red' ? 'red' : '');
+            msgDiv.innerHTML = \`<span class="sender \${teamClass}">\${sender}:</span> \${text}\`;
           }
 
           msgContainer.appendChild(msgDiv);
@@ -272,6 +291,10 @@ app.get('/', (req, res) => {
           socket = io({ auth: { token } });
           const canvas = document.getElementById('game');
           const ctx = canvas.getContext('2d');
+
+          const miniCanvas = document.getElementById('minimap');
+          const miniCtx = miniCanvas.getContext('2d');
+
           const MAP_SIZE = 2000;
 
           let dpr = window.devicePixelRatio || 1;
@@ -324,13 +347,17 @@ app.get('/', (req, res) => {
           socket.on('gameState', (data) => { players = data.players; });
 
           socket.on('chatMessage', (data) => {
-            appendChatMessage(data.username, data.text, data.isSystem);
+            appendChatMessage(data.username, data.text, data.team, data.isSystem);
           });
 
-          function renderLoop() { draw(); requestAnimationFrame(renderLoop); }
+          function renderLoop() {
+            drawGame();
+            drawMinimap();
+            requestAnimationFrame(renderLoop);
+          }
           requestAnimationFrame(renderLoop);
 
-          function draw() {
+          function drawGame() {
             const me = players[socket.id];
             ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.save();
@@ -349,21 +376,62 @@ app.get('/', (req, res) => {
 
             for (let id in players) {
               const p = players[id];
-              const isMe = id === socket.id;
 
+              // 그림자
               ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
               ctx.beginPath(); ctx.arc(p.x + 0.5, p.y + 0.5, 4.2, 0, Math.PI * 2); ctx.fill();
 
-              ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
+              // 블루팀: 파란색(#0077ff), 레드팀: 빨간색(#ff2222)
+              ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
               ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
-              ctx.lineWidth = 0.8; ctx.strokeStyle = '#000000'; ctx.stroke();
+              ctx.lineWidth = 0.8; ctx.strokeStyle = '#ffffff'; ctx.stroke();
 
+              // 닉네임
               ctx.fillStyle = '#ffffff';
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillText(p.username, p.x, p.y - 6);
             }
             ctx.restore();
+          }
+
+          function drawMinimap() {
+            const scale = 180 / MAP_SIZE;
+            miniCtx.fillStyle = '#111';
+            miniCtx.fillRect(0, 0, 180, 180);
+
+            if (mapImage.complete && mapImage.naturalWidth !== 0) {
+              miniCtx.drawImage(mapImage, 0, 0, 180, 180);
+            }
+
+            for (let id in players) {
+              const p = players[id];
+              const mx = p.x * scale;
+              const my = p.y * scale;
+
+              miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
+              miniCtx.beginPath();
+              miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
+              miniCtx.fill();
+              miniCtx.strokeStyle = '#000';
+              miniCtx.lineWidth = 1;
+              miniCtx.stroke();
+            }
+
+            // 내 화면 카메라 영역 표시
+            const me = players[socket.id];
+            if (me) {
+              const cssWidth = canvas.width / dpr;
+              const cssHeight = canvas.height / dpr;
+              const viewW = (cssWidth / 4.0) * scale;
+              const viewH = (cssHeight / 4.0) * scale;
+              const viewX = (camX * scale) - (viewW / 2);
+              const viewY = (camY * scale) - (viewH / 2);
+
+              miniCtx.strokeStyle = '#ffffff';
+              miniCtx.lineWidth = 1;
+              miniCtx.strokeRect(viewX, viewY, viewW, viewH);
+            }
           }
         }
       </script>
@@ -384,17 +452,27 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  joinCounter++;
+  // 접속 순서: 홀수 = 블루팀, 짝수 = 레드팀
+  const team = (joinCounter % 2 === 1) ? 'blue' : 'red';
+  
+  // 블루팀 스폰 (좌하단), 레드팀 스폰 (우상단)
+  const spawnX = team === 'blue' ? 100 : 1900;
+  const spawnY = team === 'blue' ? 1900 : 100;
+
   players[socket.id] = { 
-    x: 100, 
-    y: 1900, 
+    x: spawnX, 
+    y: spawnY, 
     dirX: 0, 
     dirY: 0,
-    username: socket.username
+    username: socket.username,
+    team: team
   };
 
+  const teamName = team === 'blue' ? '블루팀' : '레드팀';
   io.emit('chatMessage', {
     username: '시스템',
-    text: `${socket.username}님이 입장하셨습니다.`,
+    text: `${socket.username}님이 ${teamName}으로 입장하셨습니다.`,
     isSystem: true
   });
 
@@ -406,22 +484,25 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chatMessage', (text) => {
-    if (typeof text === 'string' && text.trim().length > 0) {
+    if (typeof text === 'string' && text.trim().length > 0 && players[socket.id]) {
       io.emit('chatMessage', {
         username: socket.username,
         text: text.trim().substring(0, 100),
+        team: players[socket.id].team,
         isSystem: false
       });
     }
   });
 
   socket.on('disconnect', () => {
-    delete players[socket.id];
-    io.emit('chatMessage', {
-      username: '시스템',
-      text: `${socket.username}님이 퇴장하셨습니다.`,
-      isSystem: true
-    });
+    if (players[socket.id]) {
+      io.emit('chatMessage', {
+        username: '시스템',
+        text: `${players[socket.id].username}님이 퇴장하셨습니다.`,
+        isSystem: true
+      });
+      delete players[socket.id];
+    }
   });
 });
 
