@@ -116,7 +116,6 @@ app.post('/api/register', async (req, res) => {
 
     usersDB = loadUsersDB();
 
-    // 이미 등록된 아이디/닉네임인지 확인
     if (usersDB[username]) {
       return res.status(400).json({ message: '이미 사용 중인 아이디/닉네임입니다.' });
     }
@@ -542,6 +541,9 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   const team = getBalancedTeam();
   
+  // 소켓을 팀 이름의 Room(방)에 입장시킴
+  socket.join(team);
+
   const spawnX = team === 'blue' ? 100 : 1900;
   const spawnY = team === 'blue' ? 1900 : 100;
 
@@ -595,12 +597,10 @@ io.on('connection', (socket) => {
     };
 
     if (targetMode === 'team') {
-      for (let id in players) {
-        if (players[id].team === senderPlayer.team) {
-          io.to(id).emit('chatMessage', payload);
-        }
-      }
+      // 해당 팀 룸에 접속해 있는 유저들에게만 발송
+      io.to(senderPlayer.team).emit('chatMessage', payload);
     } else {
+      // 전체 접속자에게 발송
       io.emit('chatMessage', payload);
     }
   });
