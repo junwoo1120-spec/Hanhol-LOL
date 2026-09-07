@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs'); // 파일 저장소용 모듈 추가
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -11,14 +12,38 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
-const usersDB = new Map();
+// === 파일 기반 DB 로직 (서버 재부팅되어도 유저 정보 유지) ===
+const DB_FILE = path.join(__dirname, 'users.json');
+
+function loadUsersDB() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const data = fs.readFileSync(DB_FILE, 'utf8');
+      return new Map(JSON.parse(data));
+    }
+  } catch (err) {
+    console.error('DB 로드 에러:', err);
+  }
+  return new Map();
+}
+
+function saveUsersDB() {
+  try {
+    const data = JSON.stringify(Array.from(usersDB.entries()));
+    fs.writeFileSync(DB_FILE, data, 'utf8');
+  } catch (err) {
+    console.error('DB 저장 에러:', err);
+  }
+}
+
+const usersDB = loadUsersDB();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
-let joinCounter = 0; // 팀 지정을 위한 접속 순서 카운터
+let joinCounter = 0;
 
 const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
@@ -81,6 +106,7 @@ app.post('/api/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     usersDB.set(username, { username, password: hashedPassword });
+    saveUsersDB(); // 파일에 영구 저장
 
     const token = jwt.sign({ username }, JWT_SECRET);
     res.json({ token, username });
@@ -377,16 +403,13 @@ app.get('/', (req, res) => {
             for (let id in players) {
               const p = players[id];
 
-              // 그림자
               ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
               ctx.beginPath(); ctx.arc(p.x + 0.5, p.y + 0.5, 4.2, 0, Math.PI * 2); ctx.fill();
 
-              // 블루팀: 파란색(#0077ff), 레드팀: 빨간색(#ff2222)
               ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
               ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
               ctx.lineWidth = 0.8; ctx.strokeStyle = '#ffffff'; ctx.stroke();
 
-              // 닉네임
               ctx.fillStyle = '#ffffff';
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
@@ -418,7 +441,6 @@ app.get('/', (req, res) => {
               miniCtx.stroke();
             }
 
-            // 내 화면 카메라 영역 표시
             const me = players[socket.id];
             if (me) {
               const cssWidth = canvas.width / dpr;
@@ -453,10 +475,8 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   joinCounter++;
-  // 접속 순서: 홀수 = 블루팀, 짝수 = 레드팀
   const team = (joinCounter % 2 === 1) ? 'blue' : 'red';
   
-  // 블루팀 스폰 (좌하단), 레드팀 스폰 (우상단)
   const spawnX = team === 'blue' ? 100 : 1900;
   const spawnY = team === 'blue' ? 1900 : 100;
 
