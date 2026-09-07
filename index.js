@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs'); // 파일 저장소용 모듈 추가
+const fs = require('fs'); // 파일 저장소용 모듈
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -106,7 +106,7 @@ app.post('/api/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     usersDB.set(username, { username, password: hashedPassword });
-    saveUsersDB(); // 파일에 영구 저장
+    saveUsersDB();
 
     const token = jwt.sign({ username }, JWT_SECRET);
     res.json({ token, username });
@@ -169,19 +169,19 @@ app.get('/', (req, res) => {
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; }
         .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
 
-        /* === 왼쪽 아래 채팅 UI === */
+        /* === 왼쪽 아래 채팅 UI (1.2배 확대) === */
         #chat-container {
-          position: absolute; left: 20px; bottom: 20px; width: 280px;
+          position: absolute; left: 24px; bottom: 24px; width: 336px;
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 8px; z-index: 5; display: none; flex-direction: column;
-          box-shadow: 0 4px 15px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+          border-radius: 10px; z-index: 5; display: none; flex-direction: column;
+          box-shadow: 0 5px 18px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
         }
         #chat-messages {
-          height: 160px; padding: 10px; overflow-y: auto; font-size: 13px;
-          display: flex; flex-direction: column; gap: 6px; word-break: break-all;
+          height: 192px; padding: 12px; overflow-y: auto; font-size: 15px;
+          display: flex; flex-direction: column; gap: 7px; word-break: break-all;
         }
-        #chat-messages::-webkit-scrollbar { width: 4px; }
-        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
+        #chat-messages::-webkit-scrollbar { width: 5px; }
+        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
         .chat-msg { color: #eee; line-height: 1.3; }
         .chat-msg .sender { font-weight: bold; }
         .chat-msg .sender.blue { color: #0088ff; }
@@ -189,19 +189,19 @@ app.get('/', (req, res) => {
         .chat-msg .system { color: #ffea00; font-style: italic; }
         #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
         #chat-input {
-          flex: 1; background: transparent; border: none; padding: 8px 10px;
-          color: #fff; font-size: 12px; outline: none;
+          flex: 1; background: transparent; border: none; padding: 10px 12px;
+          color: #fff; font-size: 14px; outline: none;
         }
         #chat-send-btn {
-          background: #0088ff; border: none; color: #fff; padding: 0 12px;
-          font-size: 12px; font-weight: bold; cursor: pointer; border-bottom-right-radius: 7px;
+          background: #0088ff; border: none; color: #fff; padding: 0 15px;
+          font-size: 14px; font-weight: bold; cursor: pointer; border-bottom-right-radius: 9px;
         }
         #chat-send-btn:hover { background: #0066cc; }
 
-        /* === 오른쪽 아래 미니맵 UI === */
+        /* === 오른쪽 아래 미니맵 UI (맵 잘림 없이 화면 끝 배치) === */
         #minimap-container {
-          position: absolute; right: 20px; bottom: 20px; width: 180px; height: 180px;
-          background: rgba(0, 0, 0, 0.8); border: 2px solid rgba(255, 255, 255, 0.4);
+          position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
+          background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
           border-radius: 6px; z-index: 5; display: none; overflow: hidden;
           box-shadow: 0 4px 15px rgba(0,0,0,0.6);
         }
@@ -408,7 +408,11 @@ app.get('/', (req, res) => {
 
               ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
               ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
-              ctx.lineWidth = 0.8; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+              
+              // 윤곽선 설정: 블루팀은 흰색, 레드팀은 검은색
+              ctx.lineWidth = 0.8;
+              ctx.strokeStyle = p.team === 'blue' ? '#ffffff' : '#000000';
+              ctx.stroke();
 
               ctx.fillStyle = '#ffffff';
               ctx.font = 'bold 4.5px sans-serif';
@@ -436,7 +440,7 @@ app.get('/', (req, res) => {
               miniCtx.beginPath();
               miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
               miniCtx.fill();
-              miniCtx.strokeStyle = '#000';
+              miniCtx.strokeStyle = p.team === 'blue' ? '#ffffff' : '#000000';
               miniCtx.lineWidth = 1;
               miniCtx.stroke();
             }
