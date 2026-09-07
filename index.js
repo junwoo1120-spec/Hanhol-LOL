@@ -198,7 +198,7 @@ app.get('/', (req, res) => {
         }
         #chat-send-btn:hover { background: #0066cc; }
 
-        /* === 오른쪽 아래 미니맵 UI (맵 잘림 없이 화면 끝 배치) === */
+        /* === 오른쪽 아래 미니맵 UI === */
         #minimap-container {
           position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
           background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
@@ -409,9 +409,9 @@ app.get('/', (req, res) => {
               ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
               ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
               
-              // 윤곽선 설정: 블루팀은 흰색, 레드팀은 검은색
+              // 블루팀과 레드팀 모두 윤곽선을 검은색으로 설정
               ctx.lineWidth = 0.8;
-              ctx.strokeStyle = p.team === 'blue' ? '#ffffff' : '#000000';
+              ctx.strokeStyle = '#000000';
               ctx.stroke();
 
               ctx.fillStyle = '#ffffff';
@@ -440,7 +440,7 @@ app.get('/', (req, res) => {
               miniCtx.beginPath();
               miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
               miniCtx.fill();
-              miniCtx.strokeStyle = p.team === 'blue' ? '#ffffff' : '#000000';
+              miniCtx.strokeStyle = '#000000';
               miniCtx.lineWidth = 1;
               miniCtx.stroke();
             }
