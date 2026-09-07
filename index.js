@@ -13,7 +13,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
 // 배포 서버 환경에 맞춰 안전하게 NeDB 데이터베이스 생성
-const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
+const db = new Datastore();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
