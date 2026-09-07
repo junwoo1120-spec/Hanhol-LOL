@@ -15,7 +15,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 // === 파일 기반 DB 로직 안전화 ===
 const DB_FILE = path.join(__dirname, 'users.json');
 
-// 항상 파일에서 최신 데이터를 로드
 function loadUsersDB() {
   try {
     if (fs.existsSync(DB_FILE)) {
@@ -28,7 +27,6 @@ function loadUsersDB() {
   return {};
 }
 
-// 파일에 즉시 안전하게 저장
 function saveUsersDB(data) {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
@@ -190,6 +188,28 @@ app.get('/', (req, res) => {
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
         .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
 
+        /* === 상단 플레이어 리스트 UI === */
+        #player-list-container {
+          position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+          background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px; z-index: 5; display: none; flex-direction: column;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+          min-width: 180px; text-align: center; overflow: hidden;
+        }
+        #player-list-header {
+          padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer;
+          user-select: none; background: rgba(255, 255, 255, 0.05); display: flex;
+          justify-content: space-between; align-items: center; gap: 10px;
+        }
+        #player-list-header:hover { background: rgba(255, 255, 255, 0.15); }
+        #player-list-content {
+          display: none; padding: 10px; max-height: 150px; overflow-y: auto;
+          border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 13px;
+        }
+        .player-item { padding: 4px 0; font-weight: bold; }
+        .player-item.blue { color: #00aaff; }
+        .player-item.red { color: #ff4444; }
+
         /* === 채팅 UI === */
         #chat-container {
           position: absolute; left: 24px; bottom: 24px; width: 336px;
@@ -258,6 +278,15 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
+      <!-- 상단 접속자 UI -->
+      <div id="player-list-container">
+        <div id="player-list-header" onclick="togglePlayerList()">
+          <span>👥 접속자 (<span id="player-count">0</span>명)</span>
+          <span id="player-list-icon">∨</span>
+        </div>
+        <div id="player-list-content"></div>
+      </div>
+
       <div id="chat-container">
         <div id="chat-messages"></div>
         <div id="chat-mode-bar">
@@ -281,6 +310,7 @@ app.get('/', (req, res) => {
         let myUsername = '';
         let socket = null;
         let chatTargetMode = 'all';
+        let isPlayerListExpanded = false;
 
         function togglePasswordVisibility() {
           const passInput = document.getElementById('password');
@@ -301,6 +331,36 @@ app.get('/', (req, res) => {
           document.getElementById('toggle-btn').innerText = isSignUpMode ? '로그인하러 가기' : '회원가입하러 가기';
         }
 
+        function togglePlayerList() {
+          isPlayerListExpanded = !isPlayerListExpanded;
+          const content = document.getElementById('player-list-content');
+          const icon = document.getElementById('player-list-icon');
+
+          if (isPlayerListExpanded) {
+            content.style.display = 'block';
+            icon.innerText = '∧';
+          } else {
+            content.style.display = 'none';
+            icon.innerText = '∨';
+          }
+        }
+
+        function updatePlayerListUI(playersData) {
+          const countSpan = document.getElementById('player-count');
+          const contentDiv = document.getElementById('player-list-content');
+
+          const playerArray = Object.values(playersData);
+          countSpan.innerText = playerArray.length;
+
+          contentDiv.innerHTML = '';
+          playerArray.forEach(p => {
+            const item = document.createElement('div');
+            item.className = \`player-item \${p.team}\`;
+            item.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
+            contentDiv.appendChild(item);
+          });
+        }
+
         async function handleAuth() {
           const username = document.getElementById('username').value.trim();
           const password = document.getElementById('password').value.trim();
@@ -319,6 +379,7 @@ app.get('/', (req, res) => {
 
           myUsername = data.username;
           document.getElementById('auth-screen').style.display = 'none';
+          document.getElementById('player-list-container').style.display = 'flex';
           document.getElementById('chat-container').style.display = 'flex';
           document.getElementById('minimap-container').style.display = 'block';
           initGame(data.token);
@@ -428,7 +489,10 @@ app.get('/', (req, res) => {
             socket.emit('keyMove', dir);
           }
 
-          socket.on('gameState', (data) => { players = data.players; });
+          socket.on('gameState', (data) => { 
+            players = data.players; 
+            updatePlayerListUI(players);
+          });
 
           socket.on('chatMessage', (data) => {
             appendChatMessage(data.username, data.text, data.team, data.isSystem, data.targetMode);
