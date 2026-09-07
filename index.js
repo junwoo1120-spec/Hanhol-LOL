@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs'); // 파일 저장소용 모듈
+const fs = require('fs');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -12,31 +12,31 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
-// === 파일 기반 DB 로직 (서버 재부팅되어도 유저 정보 유지) ===
+// === 안정적인 파일 기반 DB 로직 (객체 기반 저장) ===
 const DB_FILE = path.join(__dirname, 'users.json');
 
 function loadUsersDB() {
   try {
     if (fs.existsSync(DB_FILE)) {
       const data = fs.readFileSync(DB_FILE, 'utf8');
-      return new Map(JSON.parse(data));
+      return JSON.parse(data);
     }
   } catch (err) {
     console.error('DB 로드 에러:', err);
   }
-  return new Map();
+  return {};
 }
 
-function saveUsersDB() {
+function saveUsersDB(data) {
   try {
-    const data = JSON.stringify(Array.from(usersDB.entries()));
-    fs.writeFileSync(DB_FILE, data, 'utf8');
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
   } catch (err) {
     console.error('DB 저장 에러:', err);
   }
 }
 
-const usersDB = loadUsersDB();
+// 메모리에 DB 로드
+let usersDB = loadUsersDB();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -100,17 +100,21 @@ app.post('/api/register', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
 
-    if (usersDB.has(username)) {
+    // 최신 DB 로드 후 확인
+    usersDB = loadUsersDB();
+
+    if (usersDB[username]) {
       return res.status(400).json({ message: '이미 존재하는 아이디입니다.' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    usersDB.set(username, { username, password: hashedPassword });
-    saveUsersDB();
+    usersDB[username] = { username, password: hashedPassword };
+    saveUsersDB(usersDB);
 
     const token = jwt.sign({ username }, JWT_SECRET);
     res.json({ token, username });
   } catch (err) {
+    console.error('회원가입 에러:', err);
     res.status(500).json({ message: '회원가입 처리 중 오류가 발생했습니다.' });
   }
 });
@@ -119,7 +123,10 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = usersDB.get(username);
+
+    // 최신 DB 파일 재로드
+    usersDB = loadUsersDB();
+    const user = usersDB[username];
 
     if (!user) return res.status(400).json({ message: '아이디 또는 비밀번호가 틀렸습니다.' });
 
@@ -129,6 +136,7 @@ app.post('/api/login', async (req, res) => {
     const token = jwt.sign({ username: user.username }, JWT_SECRET);
     res.json({ token, username: user.username });
   } catch (err) {
+    console.error('로그인 에러:', err);
     res.status(500).json({ message: '로그인 처리 중 오류가 발생했습니다.' });
   }
 });
