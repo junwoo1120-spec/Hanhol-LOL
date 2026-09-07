@@ -11,7 +11,6 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
-// 배포 오류를 완전히 차단하는 안전한 메모리 DB 구현
 const usersDB = new Map();
 
 app.use(express.json());
@@ -130,21 +129,11 @@ app.get('/', (req, res) => {
         .auth-box input {
           width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #555; background: #333; color: #fff;
         }
-        .password-container {
-          position: relative;
-          width: 100%;
-        }
-        .password-container input {
-          padding-right: 40px;
-        }
+        .password-container { position: relative; width: 100%; }
+        .password-container input { padding-right: 40px; }
         .toggle-password {
-          position: absolute;
-          right: 10px;
-          top: 50%;
-          transform: translateY(-50%);
-          cursor: pointer;
-          user-select: none;
-          font-size: 16px;
+          position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+          cursor: pointer; user-select: none; font-size: 16px;
         }
         .auth-box button {
           width: 100%; padding: 10px; margin-top: 12px; border-radius: 6px; border: none; background: #0088ff; color: #fff; font-weight: bold; cursor: pointer;
@@ -152,6 +141,33 @@ app.get('/', (req, res) => {
         .auth-box button:hover { background: #0066cc; }
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; }
         .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
+
+        /* === 채팅창 UI 스타일 === */
+        #chat-container {
+          position: absolute; right: 20px; bottom: 20px; width: 280px;
+          background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px; z-index: 5; display: none; flex-direction: column;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+        }
+        #chat-messages {
+          height: 160px; padding: 10px; overflow-y: auto; font-size: 13px;
+          display: flex; flex-direction: column; gap: 6px; word-break: break-all;
+        }
+        #chat-messages::-webkit-scrollbar { width: 4px; }
+        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
+        .chat-msg { color: #eee; line-height: 1.3; }
+        .chat-msg .sender { font-weight: bold; color: #00ffff; }
+        .chat-msg .system { color: #ffea00; font-style: italic; }
+        #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+        #chat-input {
+          flex: 1; background: transparent; border: none; padding: 8px 10px;
+          color: #fff; font-size: 12px; outline: none;
+        }
+        #chat-send-btn {
+          background: #0088ff; border: none; color: #fff; padding: 0 12px;
+          font-size: 12px; font-weight: bold; cursor: pointer; border-bottom-right-radius: 7px;
+        }
+        #chat-send-btn:hover { background: #0066cc; }
       </style>
     </head>
     <body>
@@ -171,11 +187,21 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
+      <!-- 오른쪽 아래 채팅 컨테이너 -->
+      <div id="chat-container">
+        <div id="chat-messages"></div>
+        <div id="chat-input-container">
+          <input type="text" id="chat-input" placeholder="메시지 입력 (Enter)" maxlength="100" />
+          <button id="chat-send-btn" onclick="sendChatMessage()">전송</button>
+        </div>
+      </div>
+
       <canvas id="game"></canvas>
       <script src="/socket.io/socket.io.js"></script>
       <script>
         let isSignUpMode = false;
         let myUsername = '';
+        let socket = null;
 
         function togglePasswordVisibility() {
           const passInput = document.getElementById('password');
@@ -214,11 +240,36 @@ app.get('/', (req, res) => {
 
           myUsername = data.username;
           document.getElementById('auth-screen').style.display = 'none';
+          document.getElementById('chat-container').style.display = 'flex';
           initGame(data.token);
         }
 
+        function sendChatMessage() {
+          const chatInput = document.getElementById('chat-input');
+          const text = chatInput.value.trim();
+          if (text && socket) {
+            socket.emit('chatMessage', text);
+            chatInput.value = '';
+          }
+        }
+
+        function appendChatMessage(sender, text, isSystem = false) {
+          const msgContainer = document.getElementById('chat-messages');
+          const msgDiv = document.createElement('div');
+          msgDiv.className = 'chat-msg';
+
+          if (isSystem) {
+            msgDiv.innerHTML = \`<span class="system">\${text}</span>\`;
+          } else {
+            msgDiv.innerHTML = \`<span class="sender">\${sender}:</span> \${text}\`;
+          }
+
+          msgContainer.appendChild(msgDiv);
+          msgContainer.scrollTop = msgContainer.scrollHeight;
+        }
+
         function initGame(token) {
-          const socket = io({ auth: { token } });
+          socket = io({ auth: { token } });
           const canvas = document.getElementById('game');
           const ctx = canvas.getContext('2d');
           const MAP_SIZE = 2000;
@@ -239,13 +290,23 @@ app.get('/', (req, res) => {
           const keys = {};
           let camX = 1000, camY = 1000;
 
+          const chatInput = document.getElementById('chat-input');
+          chatInput.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+              sendChatMessage();
+            }
+          });
+
           window.addEventListener('keydown', (e) => {
+            if (document.activeElement === chatInput) return;
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
               e.preventDefault(); keys[e.key] = true; sendMovement();
             }
           });
 
           window.addEventListener('keyup', (e) => {
+            if (document.activeElement === chatInput) return;
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
               keys[e.key] = false; sendMovement();
             }
@@ -261,6 +322,10 @@ app.get('/', (req, res) => {
           }
 
           socket.on('gameState', (data) => { players = data.players; });
+
+          socket.on('chatMessage', (data) => {
+            appendChatMessage(data.username, data.text, data.isSystem);
+          });
 
           function renderLoop() { draw(); requestAnimationFrame(renderLoop); }
           requestAnimationFrame(renderLoop);
@@ -327,6 +392,12 @@ io.on('connection', (socket) => {
     username: socket.username
   };
 
+  io.emit('chatMessage', {
+    username: '시스템',
+    text: `${socket.username}님이 입장하셨습니다.`,
+    isSystem: true
+  });
+
   socket.on('keyMove', (dir) => {
     if (players[socket.id]) {
       players[socket.id].dirX = dir.x;
@@ -334,7 +405,24 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => { delete players[socket.id]; });
+  socket.on('chatMessage', (text) => {
+    if (typeof text === 'string' && text.trim().length > 0) {
+      io.emit('chatMessage', {
+        username: socket.username,
+        text: text.trim().substring(0, 100),
+        isSystem: false
+      });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    delete players[socket.id];
+    io.emit('chatMessage', {
+      username: '시스템',
+      text: `${socket.username}님이 퇴장하셨습니다.`,
+      isSystem: true
+    });
+  });
 });
 
 setInterval(() => {
