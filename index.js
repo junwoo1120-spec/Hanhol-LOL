@@ -12,14 +12,15 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
-// === 파일 기반 DB 로직 ===
+// === 파일 기반 DB 로직 안전화 ===
 const DB_FILE = path.join(__dirname, 'users.json');
 
+// 항상 파일에서 최신 데이터를 로드
 function loadUsersDB() {
   try {
     if (fs.existsSync(DB_FILE)) {
       const data = fs.readFileSync(DB_FILE, 'utf8');
-      return JSON.parse(data);
+      return JSON.parse(data || '{}');
     }
   } catch (err) {
     console.error('DB 로드 에러:', err);
@@ -27,6 +28,7 @@ function loadUsersDB() {
   return {};
 }
 
+// 파일에 즉시 안전하게 저장
 function saveUsersDB(data) {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
@@ -34,8 +36,6 @@ function saveUsersDB(data) {
     console.error('DB 저장 에러:', err);
   }
 }
-
-let usersDB = loadUsersDB();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -104,7 +104,7 @@ function isColliding(x, y, playerRadius = 4.2) {
   return false;
 }
 
-// 회원가입 API (아이디 중복 검사 적용)
+// 회원가입 API
 app.post('/api/register', async (req, res) => {
   try {
     const username = req.body.username ? req.body.username.trim() : '';
@@ -114,7 +114,7 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
     }
 
-    usersDB = loadUsersDB();
+    const usersDB = loadUsersDB();
 
     if (usersDB[username]) {
       return res.status(400).json({ message: '이미 사용 중인 아이디/닉네임입니다.' });
@@ -138,7 +138,7 @@ app.post('/api/login', async (req, res) => {
     const username = req.body.username ? req.body.username.trim() : '';
     const password = req.body.password ? req.body.password.trim() : '';
 
-    usersDB = loadUsersDB();
+    const usersDB = loadUsersDB();
     const user = usersDB[username];
 
     if (!user) return res.status(400).json({ message: '아이디 또는 비밀번호가 틀렸습니다.' });
@@ -541,7 +541,6 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   const team = getBalancedTeam();
   
-  // 소켓을 팀 이름의 Room(방)에 입장시킴
   socket.join(team);
 
   const spawnX = team === 'blue' ? 100 : 1900;
@@ -597,10 +596,8 @@ io.on('connection', (socket) => {
     };
 
     if (targetMode === 'team') {
-      // 해당 팀 룸에 접속해 있는 유저들에게만 발송
       io.to(senderPlayer.team).emit('chatMessage', payload);
     } else {
-      // 전체 접속자에게 발송
       io.emit('chatMessage', payload);
     }
   });
