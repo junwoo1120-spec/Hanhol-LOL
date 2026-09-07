@@ -53,7 +53,6 @@ function getBalancedTeam() {
     else if (players[id].team === 'red') redCount++;
   }
 
-  // 블루팀 수가 레드팀 수보다 적거나 같으면 블루팀, 많으면 레드팀 배정
   return blueCount <= redCount ? 'blue' : 'red';
 }
 
@@ -184,7 +183,7 @@ app.get('/', (req, res) => {
           width: 100%; padding: 10px; margin-top: 12px; border-radius: 6px; border: none; background: #0088ff; color: #fff; font-weight: bold; cursor: pointer;
         }
         .auth-box button:hover { background: #0066cc; }
-        .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; }
+        .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
         .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
 
         /* === 채팅 UI === */
@@ -230,7 +229,7 @@ app.get('/', (req, res) => {
       <div id="auth-screen">
         <div class="auth-box">
           <h2 id="auth-title">로그인</h2>
-          <div class="warning-text">※ 아이디는 한글 설정 가능하며, 한 번 정하면 변경할 수 없습니다.</div>
+          <div class="warning-text">※ 아이디는 한글 설정이 가능하며, 실명 또는 본인을 알아볼 수 있는 닉네임으로 설정해 주세요.</div>
           <input type="text" id="username" placeholder="아이디 (한글 가능)" />
           
           <div class="password-container">
@@ -493,7 +492,6 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  // 현재 접속자 수를 기준으로 블루/레드 동적 배정
   const team = getBalancedTeam();
   
   const spawnX = team === 'blue' ? 100 : 1900;
