@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const Datastore = require('nedb');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
@@ -12,8 +11,8 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
-// 배포 서버 환경에 맞춰 안전하게 NeDB 데이터베이스 생성
-const db = new Datastore();
+// 배포 오류를 완전히 차단하는 안전한 메모리 DB 구현
+const usersDB = new Map();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -72,26 +71,30 @@ function isColliding(x, y, playerRadius = 4.2) {
 
 // 회원가입 API
 app.post('/api/register', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
 
-  db.findOne({ username }, async (err, user) => {
-    if (user) return res.status(400).json({ message: '이미 존재하는 아이디입니다.' });
+    if (usersDB.has(username)) {
+      return res.status(400).json({ message: '이미 존재하는 아이디입니다.' });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    db.insert({ username, password: hashedPassword }, (err, newUser) => {
-      if (err) return res.status(500).json({ message: 'DB 오류가 발생했습니다.' });
-      const token = jwt.sign({ username: newUser.username }, JWT_SECRET);
-      res.json({ token, username: newUser.username });
-    });
-  });
+    usersDB.set(username, { username, password: hashedPassword });
+
+    const token = jwt.sign({ username }, JWT_SECRET);
+    res.json({ token, username });
+  } catch (err) {
+    res.status(500).json({ message: '회원가입 처리 중 오류가 발생했습니다.' });
+  }
 });
 
 // 로그인 API
-app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  
-  db.findOne({ username }, async (err, user) => {
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = usersDB.get(username);
+
     if (!user) return res.status(400).json({ message: '아이디 또는 비밀번호가 틀렸습니다.' });
 
     const isValid = await bcrypt.compare(password, user.password);
@@ -99,7 +102,9 @@ app.post('/api/login', (req, res) => {
 
     const token = jwt.sign({ username: user.username }, JWT_SECRET);
     res.json({ token, username: user.username });
-  });
+  } catch (err) {
+    res.status(500).json({ message: '로그인 처리 중 오류가 발생했습니다.' });
+  }
 });
 
 app.get('/', (req, res) => {
@@ -125,6 +130,22 @@ app.get('/', (req, res) => {
         .auth-box input {
           width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #555; background: #333; color: #fff;
         }
+        .password-container {
+          position: relative;
+          width: 100%;
+        }
+        .password-container input {
+          padding-right: 40px;
+        }
+        .toggle-password {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          cursor: pointer;
+          user-select: none;
+          font-size: 16px;
+        }
         .auth-box button {
           width: 100%; padding: 10px; margin-top: 12px; border-radius: 6px; border: none; background: #0088ff; color: #fff; font-weight: bold; cursor: pointer;
         }
@@ -139,7 +160,12 @@ app.get('/', (req, res) => {
           <h2 id="auth-title">로그인</h2>
           <div class="warning-text">※ 아이디는 한글 설정 가능하며, 한 번 정하면 변경할 수 없습니다.</div>
           <input type="text" id="username" placeholder="아이디 (한글 가능)" />
-          <input type="password" id="password" placeholder="비밀번호" />
+          
+          <div class="password-container">
+            <input type="password" id="password" placeholder="비밀번호" />
+            <span class="toggle-password" id="eye-icon" onclick="togglePasswordVisibility()">👁️</span>
+          </div>
+
           <button id="auth-btn" onclick="handleAuth()">로그인</button>
           <div class="toggle-text" id="toggle-btn" onclick="toggleAuthMode()">회원가입하러 가기</div>
         </div>
@@ -150,6 +176,18 @@ app.get('/', (req, res) => {
       <script>
         let isSignUpMode = false;
         let myUsername = '';
+
+        function togglePasswordVisibility() {
+          const passInput = document.getElementById('password');
+          const eyeIcon = document.getElementById('eye-icon');
+          if (passInput.type === 'password') {
+            passInput.type = 'text';
+            eyeIcon.innerText = '🙈';
+          } else {
+            passInput.type = 'password';
+            eyeIcon.innerText = '👁️';
+          }
+        }
 
         function toggleAuthMode() {
           isSignUpMode = !isSignUpMode;
