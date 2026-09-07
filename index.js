@@ -12,7 +12,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
 
-// === 안정적인 파일 기반 DB 로직 (객체 기반 저장) ===
+// === 파일 기반 DB 로직 ===
 const DB_FILE = path.join(__dirname, 'users.json');
 
 function loadUsersDB() {
@@ -35,7 +35,6 @@ function saveUsersDB(data) {
   }
 }
 
-// 메모리에 DB 로드
 let usersDB = loadUsersDB();
 
 app.use(express.json());
@@ -43,7 +42,20 @@ app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
-let joinCounter = 0;
+
+// === 현재 접속자 기반 팀 균형 배정 함수 ===
+function getBalancedTeam() {
+  let blueCount = 0;
+  let redCount = 0;
+
+  for (let id in players) {
+    if (players[id].team === 'blue') blueCount++;
+    else if (players[id].team === 'red') redCount++;
+  }
+
+  // 블루팀 수가 레드팀 수보다 적거나 같으면 블루팀, 많으면 레드팀 배정
+  return blueCount <= redCount ? 'blue' : 'red';
+}
 
 const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
@@ -100,7 +112,6 @@ app.post('/api/register', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: '아이디와 비밀번호를 입력해주세요.' });
 
-    // 최신 DB 로드 후 확인
     usersDB = loadUsersDB();
 
     if (usersDB[username]) {
@@ -124,7 +135,6 @@ app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // 최신 DB 파일 재로드
     usersDB = loadUsersDB();
     const user = usersDB[username];
 
@@ -177,7 +187,7 @@ app.get('/', (req, res) => {
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; }
         .toggle-text { margin-top: 15px; font-size: 13px; color: #aaa; cursor: pointer; text-decoration: underline; }
 
-        /* === 왼쪽 아래 채팅 UI (1.2배 확대) === */
+        /* === 채팅 UI === */
         #chat-container {
           position: absolute; left: 24px; bottom: 24px; width: 336px;
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
@@ -206,7 +216,7 @@ app.get('/', (req, res) => {
         }
         #chat-send-btn:hover { background: #0066cc; }
 
-        /* === 오른쪽 아래 미니맵 UI === */
+        /* === 미니맵 UI === */
         #minimap-container {
           position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
           background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
@@ -233,7 +243,6 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- 왼쪽 아래 채팅창 -->
       <div id="chat-container">
         <div id="chat-messages"></div>
         <div id="chat-input-container">
@@ -242,7 +251,6 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- 오른쪽 아래 미니맵 -->
       <div id="minimap-container">
         <canvas id="minimap" width="180" height="180"></canvas>
       </div>
@@ -417,7 +425,6 @@ app.get('/', (req, res) => {
               ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
               ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
               
-              // 블루팀과 레드팀 모두 윤곽선을 검은색으로 설정
               ctx.lineWidth = 0.8;
               ctx.strokeStyle = '#000000';
               ctx.stroke();
@@ -486,8 +493,8 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  joinCounter++;
-  const team = (joinCounter % 2 === 1) ? 'blue' : 'red';
+  // 현재 접속자 수를 기준으로 블루/레드 동적 배정
+  const team = getBalancedTeam();
   
   const spawnX = team === 'blue' ? 100 : 1900;
   const spawnY = team === 'blue' ? 1900 : 100;
