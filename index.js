@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const Datastore = require('nedb-multi');
+const Datastore = require('nedb');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
@@ -10,8 +10,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const JWT_SECRET = 'my_secret_key_12345'; // 토큰 암호화 키
-const db = Datastore.Datastore.create(path.join(__dirname, 'users.db'));
+const JWT_SECRET = process.env.JWT_SECRET || 'my_secret_key_12345';
+
+// 배포 서버 환경에 맞춰 안전하게 NeDB 데이터베이스 생성
+const db = new Datastore({ filename: path.join(__dirname, 'users.db'), autoload: true });
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
@@ -78,6 +80,7 @@ app.post('/api/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     db.insert({ username, password: hashedPassword }, (err, newUser) => {
+      if (err) return res.status(500).json({ message: 'DB 오류가 발생했습니다.' });
       const token = jwt.sign({ username: newUser.username }, JWT_SECRET);
       res.json({ token, username: newUser.username });
     });
@@ -241,21 +244,17 @@ app.get('/', (req, res) => {
               ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
             }
 
-            // 캐릭터 렌더링
             for (let id in players) {
               const p = players[id];
               const isMe = id === socket.id;
 
-              // 그림자
               ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
               ctx.beginPath(); ctx.arc(p.x + 0.5, p.y + 0.5, 4.2, 0, Math.PI * 2); ctx.fill();
 
-              // 본체
               ctx.fillStyle = isMe ? '#00ffff' : '#ffea00';
               ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
               ctx.lineWidth = 0.8; ctx.strokeStyle = '#000000'; ctx.stroke();
 
-              // 닉네임 표기 (아이디 한글 출력)
               ctx.fillStyle = '#ffffff';
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
@@ -270,7 +269,6 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 소켓 인증 미들웨어
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error('인증 에러'));
