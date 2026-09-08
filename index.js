@@ -82,7 +82,7 @@ app.get('/', (req, res) => {
       <title>Summoner's Rift Classic - Custom Garen</title>
       <style>
         * { box-sizing: border-box; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
         canvas { display: block; width: 100vw; height: 100vh; background: #000; }
         
         #auth-screen {
@@ -132,20 +132,28 @@ app.get('/', (req, res) => {
         }
         .kick-btn:hover { background: #cc0000; }
 
+        /* === 접고 펼치는 채팅창 === */
         #chat-container {
-          position: absolute; left: 24px; bottom: 24px; width: 336px;
-          background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 10px; z-index: 5; display: none; flex-direction: column;
-          box-shadow: 0 5px 18px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+          position: absolute; left: 24px; bottom: 24px; width: 320px;
+          background: rgba(0, 0, 0, 0.85); border: 1px solid #444;
+          border-radius: 8px; z-index: 5; display: none; flex-direction: column;
+          box-shadow: 0 5px 18px rgba(0,0,0,0.6); backdrop-filter: blur(4px); overflow: hidden;
         }
+        #chat-header {
+          padding: 7px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+          background: rgba(255, 255, 255, 0.08); display: flex;
+          justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        #chat-header:hover { background: rgba(255, 255, 255, 0.18); }
+        #chat-body { display: flex; flex-direction: column; }
         #chat-messages {
-          height: 192px; padding: 12px; overflow-y: auto; font-size: 14px;
-          display: flex; flex-direction: column; gap: 7px; word-break: break-all;
+          height: 160px; padding: 10px; overflow-y: auto; font-size: 13px;
+          display: flex; flex-direction: column; gap: 6px; word-break: break-all;
         }
-        #chat-messages::-webkit-scrollbar { width: 5px; }
-        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
+        #chat-messages::-webkit-scrollbar { width: 4px; }
+        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
         .chat-msg { color: #eee; line-height: 1.3; }
-        .chat-msg .type { font-size: 11px; font-weight: bold; margin-right: 4px; padding: 1px 4px; border-radius: 3px; }
+        .chat-msg .type { font-size: 10px; font-weight: bold; margin-right: 4px; padding: 1px 3px; border-radius: 3px; }
         .chat-msg .type.all { background: #555; color: #fff; }
         .chat-msg .type.team { background: #15803d; color: #fff; }
         .chat-msg .sender { font-weight: bold; }
@@ -157,21 +165,22 @@ app.get('/', (req, res) => {
           display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4);
         }
         .mode-btn {
-          flex: 1; background: transparent; border: none; color: #888; padding: 6px 0; font-size: 12px; font-weight: bold; cursor: pointer;
+          flex: 1; background: transparent; border: none; color: #888; padding: 5px 0; font-size: 11px; font-weight: bold; cursor: pointer;
         }
         .mode-btn.active { color: #fff; background: rgba(255, 255, 255, 0.15); }
         
         #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
         #chat-input {
-          flex: 1; background: transparent; border: none; padding: 10px 12px;
-          color: #fff; font-size: 14px; outline: none;
+          flex: 1; background: transparent; border: none; padding: 8px 10px;
+          color: #fff; font-size: 13px; outline: none;
         }
         #chat-send-btn {
-          background: #0088ff; border: none; color: #fff; padding: 0 15px;
-          font-size: 14px; font-weight: bold; cursor: pointer; border-bottom-right-radius: 9px;
+          background: #0088ff; border: none; color: #fff; padding: 0 12px;
+          font-size: 12px; font-weight: bold; cursor: pointer;
         }
         #chat-send-btn:hover { background: #0066cc; }
 
+        /* === 미니맵 === */
         #minimap-container {
           position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
           background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
@@ -179,6 +188,40 @@ app.get('/', (req, res) => {
           box-shadow: 0 4px 15px rgba(0,0,0,0.6);
         }
         #minimap { width: 100%; height: 100%; display: block; }
+
+        /* === 하단 스킬 HUD UI === */
+        #hud-container {
+          position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+          display: none; align-items: flex-end; gap: 10px; z-index: 6;
+          background: rgba(10, 15, 20, 0.85); border: 2px solid #5b4622;
+          padding: 8px 16px; border-radius: 12px; box-shadow: 0 0 15px rgba(0,0,0,0.8);
+        }
+        .portrait-box {
+          position: relative; width: 64px; height: 64px; border-radius: 50%;
+          border: 3px solid #c8aa6e; overflow: hidden; background: #000;
+          display: flex; justify-content: center; align-items: center;
+        }
+        .portrait-box canvas { width: 100%; height: 100%; }
+
+        .skills-container {
+          display: flex; gap: 8px; align-items: center;
+        }
+        .skill-slot {
+          position: relative; width: 48px; height: 48px; background: #1e2328;
+          border: 2px solid #5b4622; border-radius: 6px; display: flex;
+          justify-content: center; align-items: center; font-weight: bold; overflow: hidden;
+        }
+        .skill-key {
+          position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2;
+        }
+        .skill-icon {
+          width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; font-size: 20px;
+        }
+        .cooldown-overlay {
+          position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+          background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center;
+          align-items: center; color: #fff; font-size: 18px; font-weight: bold; z-index: 3;
+        }
       </style>
     </head>
     <body>
@@ -199,20 +242,59 @@ app.get('/', (req, res) => {
         <div id="player-list-content"></div>
       </div>
 
+      <!-- 접을 수 있는 채팅창 -->
       <div id="chat-container">
-        <div id="chat-messages"></div>
-        <div id="chat-mode-bar">
-          <button class="mode-btn active" id="btn-mode-all" onclick="setChatMode('all')">전체 (Shift+Enter)</button>
-          <button class="mode-btn" id="btn-mode-team" onclick="setChatMode('team')">팀 (Shift+Enter)</button>
+        <div id="chat-header" onclick="toggleChat()">
+          <span>💬 채팅</span>
+          <span id="chat-toggle-icon">∨</span>
         </div>
-        <div id="chat-input-container">
-          <input type="text" id="chat-input" placeholder="전체 메시지 입력..." maxlength="100" />
-          <button id="chat-send-btn" onclick="sendChatMessage()">전송</button>
+        <div id="chat-body">
+          <div id="chat-messages"></div>
+          <div id="chat-mode-bar">
+            <button class="mode-btn active" id="btn-mode-all" onclick="setChatMode('all')">전체 (Shift+Enter)</button>
+            <button class="mode-btn" id="btn-mode-team" onclick="setChatMode('team')">팀 (Shift+Enter)</button>
+          </div>
+          <div id="chat-input-container">
+            <input type="text" id="chat-input" placeholder="전체 메시지 입력..." maxlength="100" />
+            <button id="chat-send-btn" onclick="sendChatMessage()">전송</button>
+          </div>
         </div>
       </div>
 
+      <!-- 미니맵 -->
       <div id="minimap-container">
         <canvas id="minimap" width="180" height="180"></canvas>
+      </div>
+
+      <!-- 스킬/초상화 HUD -->
+      <div id="hud-container">
+        <div class="portrait-box">
+          <canvas id="portrait-canvas" width="64" height="64"></canvas>
+        </div>
+        <div class="skills-container">
+          <!-- Q -->
+          <div class="skill-slot" id="slot-q">
+            <span class="skill-key">Q</span>
+            <div class="skill-icon" style="background: #a16207; color:#fff;">⚔️</div>
+            <div class="cooldown-overlay" id="cd-q" style="display:none;">0</div>
+          </div>
+          <!-- W -->
+          <div class="skill-slot" id="slot-w">
+            <span class="skill-key">W</span>
+            <div class="skill-icon" style="background: #15803d; color:#fff;">🛡️</div>
+            <div class="cooldown-overlay" id="cd-w" style="display:none;">0</div>
+          </div>
+          <!-- E -->
+          <div class="skill-slot" id="slot-e">
+            <span class="skill-key">E</span>
+            <div class="skill-icon" style="background: #b91c1c; color:#fff;">🌀</div>
+          </div>
+          <!-- R -->
+          <div class="skill-slot" id="slot-r">
+            <span class="skill-key">R</span>
+            <div class="skill-icon" style="background: #6b21a8; color:#fff;">🗡️</div>
+          </div>
+        </div>
       </div>
 
       <canvas id="game"></canvas>
@@ -222,19 +304,22 @@ app.get('/', (req, res) => {
         let socket = null;
         let chatTargetMode = 'all';
         let isPlayerListExpanded = false;
+        let isChatExpanded = true;
 
         function togglePlayerList() {
           isPlayerListExpanded = !isPlayerListExpanded;
           const content = document.getElementById('player-list-content');
           const icon = document.getElementById('player-list-icon');
+          content.style.display = isPlayerListExpanded ? 'block' : 'none';
+          icon.innerText = isPlayerListExpanded ? '∧' : '∨';
+        }
 
-          if (isPlayerListExpanded) {
-            content.style.display = 'block';
-            icon.innerText = '∧';
-          } else {
-            content.style.display = 'none';
-            icon.innerText = '∨';
-          }
+        function toggleChat() {
+          isChatExpanded = !isChatExpanded;
+          const body = document.getElementById('chat-body');
+          const icon = document.getElementById('chat-toggle-icon');
+          body.style.display = isChatExpanded ? 'flex' : 'none';
+          icon.innerText = isChatExpanded ? '∨' : '∧';
         }
 
         function kickPlayer(targetId, targetName) {
@@ -282,6 +367,7 @@ app.get('/', (req, res) => {
           document.getElementById('player-list-container').style.display = 'flex';
           document.getElementById('chat-container').style.display = 'flex';
           document.getElementById('minimap-container').style.display = 'block';
+          document.getElementById('hud-container').style.display = 'flex';
           
           initGame(myUsername);
         }
@@ -340,6 +426,9 @@ app.get('/', (req, res) => {
 
           const miniCanvas = document.getElementById('minimap');
           const miniCtx = miniCanvas.getContext('2d');
+
+          const portraitCanvas = document.getElementById('portrait-canvas');
+          const portraitCtx = portraitCanvas.getContext('2d');
 
           const MAP_SIZE = 2000;
 
@@ -427,6 +516,10 @@ app.get('/', (req, res) => {
                 clientPlayers[id].hp = sp.hp;
                 clientPlayers[id].maxHp = sp.maxHp;
                 clientPlayers[id].shield = sp.shield;
+                clientPlayers[id].lastQTime = sp.lastQTime;
+                clientPlayers[id].qCooldown = sp.qCooldown;
+                clientPlayers[id].lastWTime = sp.lastWTime;
+                clientPlayers[id].wCooldown = sp.wCooldown;
                 clientPlayers[id].hasQBuff = sp.hasQBuff;
                 clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
                 clientPlayers[id].hasShieldPhase = sp.hasShieldPhase;
@@ -490,12 +583,12 @@ app.get('/', (req, res) => {
 
             drawGame();
             drawMinimap();
+            drawHUD();
             requestAnimationFrame(renderLoop);
           }
           requestAnimationFrame(renderLoop);
 
           function drawSimpleGaren(ctx, p) {
-            // W 1단계 (0.75초 황금빛 아우라)
             if (p.hasShieldPhase) {
               ctx.save();
               ctx.shadowColor = '#FFD700';
@@ -506,9 +599,7 @@ app.get('/', (req, res) => {
               ctx.arc(0, 0, 11, 0, Math.PI * 2);
               ctx.stroke();
               ctx.restore();
-            } 
-            // W 2단계 (4초간 받는 피해 감소 오렌지 기운)
-            else if (p.hasDamageReducePhase) {
+            } else if (p.hasDamageReducePhase) {
               ctx.save();
               ctx.shadowColor = '#FF8C00';
               ctx.shadowBlur = 10;
@@ -581,6 +672,45 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
+          function drawHUD() {
+            const me = clientPlayers[socket.id];
+            if (!me) return;
+
+            // 가렌 초상화 그리기
+            portraitCtx.clearRect(0, 0, 64, 64);
+            portraitCtx.fillStyle = '#111827';
+            portraitCtx.fillRect(0, 0, 64, 64);
+            
+            portraitCtx.save();
+            portraitCtx.translate(32, 32);
+            portraitCtx.scale(2.2, 2.2);
+            drawSimpleGaren(portraitCtx, { ...me, isAttacking: false, renderAngle: 0 });
+            portraitCtx.restore();
+
+            // 쿨타임 업데이트
+            const now = Date.now();
+
+            // Q 쿨타임
+            const qCdBox = document.getElementById('cd-q');
+            const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
+            if (qRemaining > 0) {
+              qCdBox.style.display = 'flex';
+              qCdBox.innerText = qRemaining;
+            } else {
+              qCdBox.style.display = 'none';
+            }
+
+            // W 쿨타임
+            const wCdBox = document.getElementById('cd-w');
+            const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
+            if (wRemaining > 0) {
+              wCdBox.style.display = 'flex';
+              wCdBox.innerText = wRemaining;
+            } else {
+              wCdBox.style.display = 'none';
+            }
+          }
+
           function drawGame() {
             const me = clientPlayers[socket.id];
             ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -611,7 +741,7 @@ app.get('/', (req, res) => {
 
               ctx.restore();
 
-              // 체력바 및 보호막바 렌더링
+              // 체력바
               const barWidth = 14;
               const barHeight = 2;
               const barX = p.renderX - barWidth / 2;
@@ -622,11 +752,9 @@ app.get('/', (req, res) => {
               ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
               ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
 
-              // 기본 체력바
               ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
               ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
 
-              // 보호막바
               if (p.shield > 0) {
                 ctx.fillStyle = '#FFFFCC';
                 const hpWidth = barWidth * hpRatio;
@@ -706,7 +834,6 @@ io.on('connection', (socket) => {
   
   socket.join(team);
 
-  // 스폰 위치 원복 (블루: 100, 1900 / 레드: 1900, 100)
   const spawnX = team === 'blue' ? 100 : 1900;
   const spawnY = team === 'blue' ? 1900 : 100;
 
@@ -721,7 +848,6 @@ io.on('connection', (socket) => {
     attackProgress: 0,
     lastAttackTime: 0,
 
-    // 가렌 기본 능력치
     hp: 680,
     maxHp: 680,
     shield: 0,
@@ -730,27 +856,22 @@ io.on('connection', (socket) => {
     magicResist: 32,
     hpRegen: 8,
 
-    // W 패시브 방마저 영구 증가 스택 (최대 30)
     wBonusStats: 0,
 
-    // Q 쿨타임 (8초)
     qCooldown: 8000,
     lastQTime: 0,
 
-    // W 쿨타임 (23초로 변경)
     wCooldown: 23000,
     lastWTime: 0,
 
-    // Q 버프
     hasQBuff: false,
     qBuffEndTime: 0,
     hasSpeedBuff: false,
     speedBuffEndTime: 0,
 
-    // W 상태 관리 (총 4.75초 타임라인)
-    hasShieldPhase: false,        // 0.75초간 보호막 + 강인함 60%
+    hasShieldPhase: false,
     shieldPhaseEndTime: 0,
-    hasDamageReducePhase: false, // 0.75초 이후 4초간 받는 피해 30% 감소
+    hasDamageReducePhase: false,
     damageReducePhaseEndTime: 0
   };
 
@@ -794,12 +915,10 @@ io.on('connection', (socket) => {
 
     p.lastWTime = now;
 
-    // 1단계: 0.75초간 보호막(최대체력 15%) 및 강인함 60%
     p.shield = p.maxHp * 0.15;
     p.hasShieldPhase = true;
     p.shieldPhaseEndTime = now + 750;
 
-    // 2단계: 0.75초 후부터 시작될 4초간 피해 감소 예약 (총 4.75초)
     p.hasDamageReducePhase = false;
     p.damageReducePhaseEndTime = now + 4750;
   });
@@ -828,16 +947,13 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist <= 35) {
-          // 기본 방어력 계산
           const totalArmor = target.armor + target.wBonusStats;
           let incomingDamage = Math.max(1, damage - totalArmor);
 
-          // W 2단계: 4초간 받는 피해 30% 감소
           if (target.hasDamageReducePhase) {
             incomingDamage *= 0.7;
           }
 
-          // W 1단계: 보호막 우선 차감
           if (target.shield > 0) {
             if (target.shield >= incomingDamage) {
               target.shield -= incomingDamage;
@@ -848,11 +964,9 @@ io.on('connection', (socket) => {
             }
           }
 
-          // 최종 체력 차감
           if (incomingDamage > 0) {
             target.hp = Math.max(0, target.hp - incomingDamage);
             
-            // 적 처치 시 (W 패시브 영구 방마저 +0.2, 최대 30)
             if (target.hp === 0) {
               if (p.wBonusStats < 30) {
                 p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
@@ -919,7 +1033,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// 서버 루프
 setInterval(() => {
   const now = Date.now();
 
@@ -933,7 +1046,6 @@ setInterval(() => {
     if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
     if (p.hasSpeedBuff && now >= p.speedBuffEndTime) p.hasSpeedBuff = false;
 
-    // W 타이머
     if (p.hasShieldPhase) {
       if (now >= p.shieldPhaseEndTime) {
         p.hasShieldPhase = false;
