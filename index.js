@@ -385,6 +385,10 @@ app.get('/', (req, res) => {
               e.preventDefault();
               socket.emit('useQ');
             }
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ㅈ') {
+              e.preventDefault();
+              socket.emit('useW');
+            }
           });
 
           window.addEventListener('keyup', (e) => {
@@ -422,8 +426,11 @@ app.get('/', (req, res) => {
                 clientPlayers[id].team = sp.team;
                 clientPlayers[id].hp = sp.hp;
                 clientPlayers[id].maxHp = sp.maxHp;
+                clientPlayers[id].shield = sp.shield;
                 clientPlayers[id].hasQBuff = sp.hasQBuff;
                 clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
+                clientPlayers[id].hasShieldPhase = sp.hasShieldPhase;
+                clientPlayers[id].hasDamageReducePhase = sp.hasDamageReducePhase;
               }
             }
 
@@ -450,7 +457,6 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              // 넥서스간 1분 이동 기준속도 (36.8 px/s)
               const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
 
               if (cp.dirX < 0 && cp.dirY < 0) {
@@ -489,6 +495,31 @@ app.get('/', (req, res) => {
           requestAnimationFrame(renderLoop);
 
           function drawSimpleGaren(ctx, p) {
+            // W 1단계 (0.75초 황금빛 아우라)
+            if (p.hasShieldPhase) {
+              ctx.save();
+              ctx.shadowColor = '#FFD700';
+              ctx.shadowBlur = 15;
+              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.arc(0, 0, 11, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            } 
+            // W 2단계 (4초간 받는 피해 감소 오렌지 기운)
+            else if (p.hasDamageReducePhase) {
+              ctx.save();
+              ctx.shadowColor = '#FF8C00';
+              ctx.shadowBlur = 10;
+              ctx.strokeStyle = 'rgba(255, 140, 0, 0.7)';
+              ctx.lineWidth = 1.8;
+              ctx.beginPath();
+              ctx.arc(0, 0, 10, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            }
+
             ctx.fillStyle = '#FFE268';
             ctx.beginPath();
             ctx.arc(0, 0, 5, 0, Math.PI * 2);
@@ -580,18 +611,27 @@ app.get('/', (req, res) => {
 
               ctx.restore();
 
-              // 체력바 (숫자 표시 없음)
+              // 체력바 및 보호막바 렌더링
               const barWidth = 14;
               const barHeight = 2;
               const barX = p.renderX - barWidth / 2;
               const barY = p.renderY - 10;
               const hpRatio = Math.max(0, p.hp / p.maxHp);
+              const shieldRatio = Math.min(1, p.shield / p.maxHp);
 
               ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
               ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
 
+              // 기본 체력바
               ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
               ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+
+              // 보호막바
+              if (p.shield > 0) {
+                ctx.fillStyle = '#FFFFCC';
+                const hpWidth = barWidth * hpRatio;
+                ctx.fillRect(barX + hpWidth, barY, Math.min(barWidth - hpWidth, barWidth * shieldRatio), barHeight);
+              }
 
               // 닉네임
               ctx.font = 'bold 4.5px sans-serif';
@@ -666,8 +706,9 @@ io.on('connection', (socket) => {
   
   socket.join(team);
 
-  const spawnX = team === 'blue' ? 225 : 1786;
-  const spawnY = team === 'blue' ? 1766 : 223;
+  // 스폰 위치 원복 (블루: 100, 1900 / 레드: 1900, 100)
+  const spawnX = team === 'blue' ? 100 : 1900;
+  const spawnY = team === 'blue' ? 1900 : 100;
 
   players[socket.id] = { 
     x: spawnX, 
@@ -680,24 +721,37 @@ io.on('connection', (socket) => {
     attackProgress: 0,
     lastAttackTime: 0,
 
-    // 가렌 능력치
+    // 가렌 기본 능력치
     hp: 680,
     maxHp: 680,
+    shield: 0,
     attackDamage: 68,
     armor: 38,
     magicResist: 32,
     hpRegen: 8,
 
-    // Q 쿨타임 (8000ms = 8초)
+    // W 패시브 방마저 영구 증가 스택 (최대 30)
+    wBonusStats: 0,
+
+    // Q 쿨타임 (8초)
     qCooldown: 8000,
     lastQTime: 0,
 
-    // 버프 및 스태터스
-    slow: null,
+    // W 쿨타임 (23초로 변경)
+    wCooldown: 23000,
+    lastWTime: 0,
+
+    // Q 버프
     hasQBuff: false,
     qBuffEndTime: 0,
     hasSpeedBuff: false,
-    speedBuffEndTime: 0
+    speedBuffEndTime: 0,
+
+    // W 상태 관리 (총 4.75초 타임라인)
+    hasShieldPhase: false,        // 0.75초간 보호막 + 강인함 60%
+    shieldPhaseEndTime: 0,
+    hasDamageReducePhase: false, // 0.75초 이후 4초간 받는 피해 30% 감소
+    damageReducePhaseEndTime: 0
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
@@ -720,23 +774,34 @@ io.on('connection', (socket) => {
     if (!p) return;
 
     const now = Date.now();
-
-    // Q 스킬 쿨타임 검사 (8초)
     if (now - p.lastQTime < p.qCooldown) return;
 
     p.lastQTime = now;
-
-    // 1. 둔화 해제
-    p.slow = null;
-
-    // 2. Q 평타 강화 버프 (4.5초)
     p.hasQBuff = true;
     p.qBuffEndTime = now + 4500;
 
-    // 3. 이동속도 35% 증가 (1초 ~ 3.6초 사이 랜덤)
     const randomDuration = (1 + Math.random() * 2.6) * 1000;
     p.hasSpeedBuff = true;
     p.speedBuffEndTime = now + randomDuration;
+  });
+
+  socket.on('useW', () => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    const now = Date.now();
+    if (now - p.lastWTime < p.wCooldown) return;
+
+    p.lastWTime = now;
+
+    // 1단계: 0.75초간 보호막(최대체력 15%) 및 강인함 60%
+    p.shield = p.maxHp * 0.15;
+    p.hasShieldPhase = true;
+    p.shieldPhaseEndTime = now + 750;
+
+    // 2단계: 0.75초 후부터 시작될 4초간 피해 감소 예약 (총 4.75초)
+    p.hasDamageReducePhase = false;
+    p.damageReducePhaseEndTime = now + 4750;
   });
 
   socket.on('attack', () => {
@@ -750,7 +815,7 @@ io.on('connection', (socket) => {
       let damage = p.attackDamage;
       if (p.hasQBuff) {
         damage *= 1.5;
-        p.hasQBuff = false; // 강화 평타 적용 후 평타 버프만 제거 (이속 버프는 유지)
+        p.hasQBuff = false;
       }
 
       for (let targetId in players) {
@@ -763,8 +828,37 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist <= 35) {
-          const finalDamage = Math.max(1, damage - target.armor);
-          target.hp = Math.max(0, target.hp - finalDamage);
+          // 기본 방어력 계산
+          const totalArmor = target.armor + target.wBonusStats;
+          let incomingDamage = Math.max(1, damage - totalArmor);
+
+          // W 2단계: 4초간 받는 피해 30% 감소
+          if (target.hasDamageReducePhase) {
+            incomingDamage *= 0.7;
+          }
+
+          // W 1단계: 보호막 우선 차감
+          if (target.shield > 0) {
+            if (target.shield >= incomingDamage) {
+              target.shield -= incomingDamage;
+              incomingDamage = 0;
+            } else {
+              incomingDamage -= target.shield;
+              target.shield = 0;
+            }
+          }
+
+          // 최종 체력 차감
+          if (incomingDamage > 0) {
+            target.hp = Math.max(0, target.hp - incomingDamage);
+            
+            // 적 처치 시 (W 패시브 영구 방마저 +0.2, 최대 30)
+            if (target.hp === 0) {
+              if (p.wBonusStats < 30) {
+                p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
+              }
+            }
+          }
         }
       }
     }
@@ -825,24 +919,31 @@ io.on('connection', (socket) => {
   });
 });
 
-// 서버 물리 로직 루프 (초당 60회)
+// 서버 루프
 setInterval(() => {
   const now = Date.now();
 
   for (let id in players) {
     const p = players[id];
 
-    // 체력 재생 (초당 8)
     if (p.hp < p.maxHp) {
       p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
     }
 
-    // 버프 타이머 체크
-    if (p.hasQBuff && now >= p.qBuffEndTime) {
-      p.hasQBuff = false;
+    if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
+    if (p.hasSpeedBuff && now >= p.speedBuffEndTime) p.hasSpeedBuff = false;
+
+    // W 타이머
+    if (p.hasShieldPhase) {
+      if (now >= p.shieldPhaseEndTime) {
+        p.hasShieldPhase = false;
+        p.shield = 0;
+        p.hasDamageReducePhase = true;
+      }
     }
-    if (p.hasSpeedBuff && now >= p.speedBuffEndTime) {
-      p.hasSpeedBuff = false;
+    
+    if (p.hasDamageReducePhase && now >= p.damageReducePhaseEndTime) {
+      p.hasDamageReducePhase = false;
     }
 
     if (p.isAttacking) {
@@ -853,7 +954,6 @@ setInterval(() => {
       }
     }
 
-    // 미드 직진 1분 이동 속도 설정 (기본: 0.613 px/tick = 약 36.8 px/s, Q이속: +35%)
     const currentSpeed = p.hasSpeedBuff ? 0.6133 * 1.35 : 0.6133;
 
     let moveX = p.dirX, moveY = p.dirY;
