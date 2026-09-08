@@ -132,7 +132,6 @@ app.get('/', (req, res) => {
         }
         .kick-btn:hover { background: #cc0000; }
 
-        /* === 접고 펼치는 채팅창 === */
         #chat-container {
           position: absolute; left: 24px; bottom: 24px; width: 320px;
           background: rgba(0, 0, 0, 0.85); border: 1px solid #444;
@@ -180,7 +179,6 @@ app.get('/', (req, res) => {
         }
         #chat-send-btn:hover { background: #0066cc; }
 
-        /* === 미니맵 === */
         #minimap-container {
           position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
           background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
@@ -189,7 +187,6 @@ app.get('/', (req, res) => {
         }
         #minimap { width: 100%; height: 100%; display: block; }
 
-        /* === 하단 스킬 HUD UI === */
         #hud-container {
           position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
           display: none; align-items: flex-end; gap: 10px; z-index: 6;
@@ -203,9 +200,7 @@ app.get('/', (req, res) => {
         }
         .portrait-box canvas { width: 100%; height: 100%; }
 
-        .skills-container {
-          display: flex; gap: 8px; align-items: center;
-        }
+        .skills-container { display: flex; gap: 8px; align-items: center; }
         .skill-slot {
           position: relative; width: 48px; height: 48px; background: #1e2328;
           border: 2px solid #5b4622; border-radius: 6px; display: flex;
@@ -214,9 +209,7 @@ app.get('/', (req, res) => {
         .skill-key {
           position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2;
         }
-        .skill-icon-canvas {
-          width: 100%; height: 100%; display: block;
-        }
+        .skill-icon-canvas { width: 100%; height: 100%; display: block; }
         .cooldown-overlay {
           position: absolute; top: 0; left: 0; width: 100%; height: 100%;
           background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center;
@@ -242,7 +235,6 @@ app.get('/', (req, res) => {
         <div id="player-list-content"></div>
       </div>
 
-      <!-- 접을 수 있는 채팅창 -->
       <div id="chat-container">
         <div id="chat-header" onclick="toggleChat()">
           <span>💬 채팅</span>
@@ -261,35 +253,29 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- 미니맵 -->
       <div id="minimap-container">
         <canvas id="minimap" width="180" height="180"></canvas>
       </div>
 
-      <!-- 스킬/초상화 HUD -->
       <div id="hud-container">
         <div class="portrait-box">
           <canvas id="portrait-canvas" width="64" height="64"></canvas>
         </div>
         <div class="skills-container">
-          <!-- Q -->
           <div class="skill-slot" id="slot-q">
             <span class="skill-key">Q</span>
             <canvas class="skill-icon-canvas" id="icon-q" width="48" height="48"></canvas>
             <div class="cooldown-overlay" id="cd-q" style="display:none;">0</div>
           </div>
-          <!-- W -->
           <div class="skill-slot" id="slot-w">
             <span class="skill-key">W</span>
             <canvas class="skill-icon-canvas" id="icon-w" width="48" height="48"></canvas>
             <div class="cooldown-overlay" id="cd-w" style="display:none;">0</div>
           </div>
-          <!-- E -->
           <div class="skill-slot" id="slot-e">
             <span class="skill-key">E</span>
             <canvas class="skill-icon-canvas" id="icon-e" width="48" height="48"></canvas>
           </div>
-          <!-- R -->
           <div class="skill-slot" id="slot-r">
             <span class="skill-key">R</span>
             <canvas class="skill-icon-canvas" id="icon-r" width="48" height="48"></canvas>
@@ -449,7 +435,6 @@ app.get('/', (req, res) => {
           const keys = {};
           let camX = 1000, camY = 1000;
 
-          // HUD 스킬 정적 이펙트 그리기
           drawSkillIcons();
 
           const chatInput = document.getElementById('chat-input');
@@ -591,42 +576,9 @@ app.get('/', (req, res) => {
           }
           requestAnimationFrame(renderLoop);
 
-          function drawSimpleGaren(ctx, p) {
-            // W 스킬 오라 (0.75초 후 4초 동안도 동일하게 황금빛/주황빛 후광 렌더링)
-            if (p.hasShieldPhase || p.hasDamageReducePhase) {
-              ctx.save();
-              ctx.shadowColor = '#FFD700';
-              ctx.shadowBlur = 15;
-              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
-              ctx.lineWidth = 2.5;
-              ctx.beginPath();
-              ctx.arc(0, 0, 11, 0, Math.PI * 2);
-              ctx.stroke();
-              ctx.restore();
-            }
-
-            ctx.fillStyle = '#FFE268';
-            ctx.beginPath();
-            ctx.arc(0, 0, 5, 0, Math.PI * 2);
-            ctx.fill();
-
-            let swingAngle = 0;
-            if (p.isAttacking) {
-              swingAngle = -1.2 + (p.attackProgress * 2.4);
-            }
-
-            ctx.save();
-            ctx.rotate(swingAngle);
-
-            if (p.isAttacking) {
-              ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
-              ctx.beginPath();
-              ctx.moveTo(0, 0);
-              ctx.arc(0, 0, 18, -0.6, 0.6);
-              ctx.fill();
-            }
-
-            if (p.hasQBuff) {
+          // 칼을 그리는 공통 렌더링 함수
+          function renderSword(ctx, isQBuff = false) {
+            if (isQBuff) {
               ctx.shadowColor = '#FFE200';
               ctx.shadowBlur = 10;
             }
@@ -634,7 +586,7 @@ app.get('/', (req, res) => {
             ctx.fillStyle = '#653311';
             ctx.fillRect(3, -0.6, 2.5, 1.2);
 
-            ctx.fillStyle = p.hasQBuff ? '#FFF000' : '#D1AC38';
+            ctx.fillStyle = isQBuff ? '#FFF000' : '#D1AC38';
             ctx.beginPath();
             ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
             ctx.fill();
@@ -646,7 +598,7 @@ app.get('/', (req, res) => {
             ctx.fillStyle = '#1A1A1A';
             ctx.fillRect(7.2, -1, 7, 2);
 
-            ctx.fillStyle = p.hasQBuff ? '#FFFF88' : '#A0A0A0';
+            ctx.fillStyle = isQBuff ? '#FFFF88' : '#A0A0A0';
             ctx.beginPath();
             ctx.moveTo(7.2, -1.3);
             ctx.lineTo(13.5, -1.3);
@@ -662,6 +614,47 @@ app.get('/', (req, res) => {
             ctx.beginPath();
             ctx.arc(8.5, 0, 0.5, 0, Math.PI * 2);
             ctx.fill();
+          }
+
+          function drawSimpleGaren(ctx, p) {
+            // W 오라 이펙트
+            if (p.hasShieldPhase || p.hasDamageReducePhase) {
+              ctx.save();
+              ctx.shadowColor = '#FFD700';
+              ctx.shadowBlur = 15;
+              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.arc(0, 0, 11, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            }
+
+            // 본체
+            ctx.fillStyle = '#FFE268';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 공격 모션: 위에서 아래로 (오른쪽에서 왼쪽으로 내리치기)
+            let swingAngle = 0;
+            if (p.isAttacking) {
+              // -1.2 rad (위/오른쪽) -> +1.2 rad (아래/왼쪽)
+              swingAngle = -1.2 + (p.attackProgress * 2.4);
+            }
+
+            ctx.save();
+            ctx.rotate(swingAngle);
+
+            if (p.isAttacking) {
+              ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.arc(0, 0, 18, -1.2, -1.2 + (p.attackProgress * 2.4));
+              ctx.fill();
+            }
+
+            renderSword(ctx, p.hasQBuff);
 
             ctx.restore();
           }
@@ -674,13 +667,11 @@ app.get('/', (req, res) => {
             ctx.save();
             ctx.translate(26, 38);
             
-            // 몸통
             ctx.fillStyle = '#FFE268';
             ctx.beginPath();
             ctx.arc(0, 0, 10, 0, Math.PI * 2);
             ctx.fill();
 
-            // 오른쪽 위로 든 칼 렌더링
             ctx.save();
             ctx.rotate(-60 * (Math.PI / 180));
 
@@ -706,23 +697,22 @@ app.get('/', (req, res) => {
           }
 
           function drawSkillIcons() {
-            // Q 아이콘 (강화된 빛나는 칼)
+            // Q 아이콘 (평타 강화 상태의 빛나는 칼 오른쪽 45도 방향)
             const qCanvas = document.getElementById('icon-q');
             const qCtx = qCanvas.getContext('2d');
-            qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
+            qCtx.fillStyle = '#1c1917'; 
+            qCtx.fillRect(0, 0, 48, 48);
+            
             qCtx.save();
-            qCtx.translate(24, 24);
-            qCtx.rotate(-45 * Math.PI / 180);
-            qCtx.shadowColor = '#FFE200'; qCtx.shadowBlur = 12;
-            qCtx.fillStyle = '#FFF000';
-            qCtx.fillRect(-3, -16, 6, 32);
-            qCtx.fillStyle = '#FFFF88';
-            qCtx.beginPath();
-            qCtx.moveTo(-4, -16); qCtx.lineTo(0, -22); qCtx.lineTo(4, -16);
-            qCtx.fill();
+            qCtx.translate(16, 32);
+            qCtx.rotate(-45 * Math.PI / 180); // 오른쪽 45도 방향
+            qCtx.scale(1.8, 1.8);
+            
+            renderSword(qCtx, true); // 강화된 칼 그리기
+            
             qCtx.restore();
 
-            // W 아이콘 (황금빛 용기의 보호막)
+            // W 아이콘 (용기의 보호막)
             const wCanvas = document.getElementById('icon-w');
             const wCtx = wCanvas.getContext('2d');
             wCtx.fillStyle = '#064e3b'; wCtx.fillRect(0, 0, 48, 48);
@@ -734,14 +724,14 @@ app.get('/', (req, res) => {
             wCtx.fillStyle = 'rgba(255, 215, 0, 0.3)'; wCtx.fill();
             wCtx.restore();
 
-            // E 아이콘 (회오리)
+            // E 아이콘
             const eCanvas = document.getElementById('icon-e');
             const eCtx = eCanvas.getContext('2d');
             eCtx.fillStyle = '#7f1d1d'; eCtx.fillRect(0, 0, 48, 48);
             eCtx.strokeStyle = '#fca5a5'; eCtx.lineWidth = 3;
             eCtx.beginPath(); eCtx.arc(24, 24, 12, 0, Math.PI * 1.5); eCtx.stroke();
 
-            // R 아이콘 (데마시아 검)
+            // R 아이콘
             const rCanvas = document.getElementById('icon-r');
             const rCtx = rCanvas.getContext('2d');
             rCtx.fillStyle = '#581c87'; rCtx.fillRect(0, 0, 48, 48);
@@ -753,13 +743,10 @@ app.get('/', (req, res) => {
             const me = clientPlayers[socket.id];
             if (!me) return;
 
-            // 가렌 초상화 렌더링
             drawGarenPortrait(portraitCtx);
 
-            // 쿨타임 업데이트
             const now = Date.now();
 
-            // Q 쿨타임
             const qCdBox = document.getElementById('cd-q');
             const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
             if (qRemaining > 0) {
@@ -769,7 +756,6 @@ app.get('/', (req, res) => {
               qCdBox.style.display = 'none';
             }
 
-            // W 쿨타임
             const wCdBox = document.getElementById('cd-w');
             const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
             if (wRemaining > 0) {
@@ -810,7 +796,6 @@ app.get('/', (req, res) => {
 
               ctx.restore();
 
-              // 체력바
               const barWidth = 14;
               const barHeight = 2;
               const barX = p.renderX - barWidth / 2;
@@ -830,7 +815,6 @@ app.get('/', (req, res) => {
                 ctx.fillRect(barX + hpWidth, barY, Math.min(barWidth - hpWidth, barWidth * shieldRatio), barHeight);
               }
 
-              // 닉네임
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
