@@ -214,8 +214,8 @@ app.get('/', (req, res) => {
         .skill-key {
           position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2;
         }
-        .skill-icon {
-          width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; font-size: 20px;
+        .skill-icon-canvas {
+          width: 100%; height: 100%; display: block;
         }
         .cooldown-overlay {
           position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -275,24 +275,24 @@ app.get('/', (req, res) => {
           <!-- Q -->
           <div class="skill-slot" id="slot-q">
             <span class="skill-key">Q</span>
-            <div class="skill-icon" style="background: #a16207; color:#fff;">⚔️</div>
+            <canvas class="skill-icon-canvas" id="icon-q" width="48" height="48"></canvas>
             <div class="cooldown-overlay" id="cd-q" style="display:none;">0</div>
           </div>
           <!-- W -->
           <div class="skill-slot" id="slot-w">
             <span class="skill-key">W</span>
-            <div class="skill-icon" style="background: #15803d; color:#fff;">🛡️</div>
+            <canvas class="skill-icon-canvas" id="icon-w" width="48" height="48"></canvas>
             <div class="cooldown-overlay" id="cd-w" style="display:none;">0</div>
           </div>
           <!-- E -->
           <div class="skill-slot" id="slot-e">
             <span class="skill-key">E</span>
-            <div class="skill-icon" style="background: #b91c1c; color:#fff;">🌀</div>
+            <canvas class="skill-icon-canvas" id="icon-e" width="48" height="48"></canvas>
           </div>
           <!-- R -->
           <div class="skill-slot" id="slot-r">
             <span class="skill-key">R</span>
-            <div class="skill-icon" style="background: #6b21a8; color:#fff;">🗡️</div>
+            <canvas class="skill-icon-canvas" id="icon-r" width="48" height="48"></canvas>
           </div>
         </div>
       </div>
@@ -449,6 +449,9 @@ app.get('/', (req, res) => {
           const keys = {};
           let camX = 1000, camY = 1000;
 
+          // HUD 스킬 정적 이펙트 그리기
+          drawSkillIcons();
+
           const chatInput = document.getElementById('chat-input');
           chatInput.addEventListener('keydown', (e) => {
             e.stopPropagation();
@@ -589,7 +592,8 @@ app.get('/', (req, res) => {
           requestAnimationFrame(renderLoop);
 
           function drawSimpleGaren(ctx, p) {
-            if (p.hasShieldPhase) {
+            // W 스킬 오라 (0.75초 후 4초 동안도 동일하게 황금빛/주황빛 후광 렌더링)
+            if (p.hasShieldPhase || p.hasDamageReducePhase) {
               ctx.save();
               ctx.shadowColor = '#FFD700';
               ctx.shadowBlur = 15;
@@ -597,16 +601,6 @@ app.get('/', (req, res) => {
               ctx.lineWidth = 2.5;
               ctx.beginPath();
               ctx.arc(0, 0, 11, 0, Math.PI * 2);
-              ctx.stroke();
-              ctx.restore();
-            } else if (p.hasDamageReducePhase) {
-              ctx.save();
-              ctx.shadowColor = '#FF8C00';
-              ctx.shadowBlur = 10;
-              ctx.strokeStyle = 'rgba(255, 140, 0, 0.7)';
-              ctx.lineWidth = 1.8;
-              ctx.beginPath();
-              ctx.arc(0, 0, 10, 0, Math.PI * 2);
               ctx.stroke();
               ctx.restore();
             }
@@ -672,20 +666,95 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
+          function drawGarenPortrait(ctx) {
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.fillStyle = '#0a0f14';
+            ctx.fillRect(0, 0, 64, 64);
+
+            ctx.save();
+            ctx.translate(26, 38);
+            
+            // 몸통
+            ctx.fillStyle = '#FFE268';
+            ctx.beginPath();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 오른쪽 위로 든 칼 렌더링
+            ctx.save();
+            ctx.rotate(-60 * (Math.PI / 180));
+
+            ctx.fillStyle = '#653311';
+            ctx.fillRect(6, -1.2, 5, 2.4);
+
+            ctx.fillStyle = '#D1AC38';
+            ctx.beginPath();
+            ctx.arc(11, 0, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#A0A0A0';
+            ctx.beginPath();
+            ctx.moveTo(13, -2.5);
+            ctx.lineTo(26, -2.5);
+            ctx.lineTo(31, 0);
+            ctx.lineTo(26, 2.5);
+            ctx.lineTo(13, 2.5);
+            ctx.fill();
+
+            ctx.restore();
+            ctx.restore();
+          }
+
+          function drawSkillIcons() {
+            // Q 아이콘 (강화된 빛나는 칼)
+            const qCanvas = document.getElementById('icon-q');
+            const qCtx = qCanvas.getContext('2d');
+            qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
+            qCtx.save();
+            qCtx.translate(24, 24);
+            qCtx.rotate(-45 * Math.PI / 180);
+            qCtx.shadowColor = '#FFE200'; qCtx.shadowBlur = 12;
+            qCtx.fillStyle = '#FFF000';
+            qCtx.fillRect(-3, -16, 6, 32);
+            qCtx.fillStyle = '#FFFF88';
+            qCtx.beginPath();
+            qCtx.moveTo(-4, -16); qCtx.lineTo(0, -22); qCtx.lineTo(4, -16);
+            qCtx.fill();
+            qCtx.restore();
+
+            // W 아이콘 (황금빛 용기의 보호막)
+            const wCanvas = document.getElementById('icon-w');
+            const wCtx = wCanvas.getContext('2d');
+            wCtx.fillStyle = '#064e3b'; wCtx.fillRect(0, 0, 48, 48);
+            wCtx.save();
+            wCtx.translate(24, 24);
+            wCtx.shadowColor = '#FFD700'; wCtx.shadowBlur = 10;
+            wCtx.strokeStyle = '#FFD700'; wCtx.lineWidth = 3;
+            wCtx.beginPath(); wCtx.arc(0, 0, 14, 0, Math.PI * 2); wCtx.stroke();
+            wCtx.fillStyle = 'rgba(255, 215, 0, 0.3)'; wCtx.fill();
+            wCtx.restore();
+
+            // E 아이콘 (회오리)
+            const eCanvas = document.getElementById('icon-e');
+            const eCtx = eCanvas.getContext('2d');
+            eCtx.fillStyle = '#7f1d1d'; eCtx.fillRect(0, 0, 48, 48);
+            eCtx.strokeStyle = '#fca5a5'; eCtx.lineWidth = 3;
+            eCtx.beginPath(); eCtx.arc(24, 24, 12, 0, Math.PI * 1.5); eCtx.stroke();
+
+            // R 아이콘 (데마시아 검)
+            const rCanvas = document.getElementById('icon-r');
+            const rCtx = rCanvas.getContext('2d');
+            rCtx.fillStyle = '#581c87'; rCtx.fillRect(0, 0, 48, 48);
+            rCtx.fillStyle = '#c084fc';
+            rCtx.fillRect(22, 10, 4, 28);
+          }
+
           function drawHUD() {
             const me = clientPlayers[socket.id];
             if (!me) return;
 
-            // 가렌 초상화 그리기
-            portraitCtx.clearRect(0, 0, 64, 64);
-            portraitCtx.fillStyle = '#111827';
-            portraitCtx.fillRect(0, 0, 64, 64);
-            
-            portraitCtx.save();
-            portraitCtx.translate(32, 32);
-            portraitCtx.scale(2.2, 2.2);
-            drawSimpleGaren(portraitCtx, { ...me, isAttacking: false, renderAngle: 0 });
-            portraitCtx.restore();
+            // 가렌 초상화 렌더링
+            drawGarenPortrait(portraitCtx);
 
             // 쿨타임 업데이트
             const now = Date.now();
