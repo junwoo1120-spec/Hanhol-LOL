@@ -358,9 +358,6 @@ app.get('/', (req, res) => {
           const mapImage = new Image();
           mapImage.src = 'web.webp';
 
-          // 방향 저장을 위한 객체
-          let playerAngles = {};
-
           let players = {};
           const keys = {};
           let camX = 1000, camY = 1000;
@@ -381,6 +378,10 @@ app.get('/', (req, res) => {
             if (document.activeElement === chatInput) return;
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
               e.preventDefault(); keys[e.key] = true; sendMovement();
+            }
+            if (e.code === 'Space') {
+              e.preventDefault();
+              socket.emit('attack');
             }
           });
 
@@ -421,18 +422,33 @@ app.get('/', (req, res) => {
           }
           requestAnimationFrame(renderLoop);
 
-          // 이미지 대신 직접 그리는 노란 원 + 검 가렌 렌더링 함수
-          function drawSimpleGaren(ctx) {
+          // 노란 원 + 검 가렌 (평타 휘두르기 애니메이션 포함)
+          function drawSimpleGaren(ctx, p) {
             // 1. 노란색 캐릭터 몸체 (원)
             ctx.fillStyle = '#FFE268';
             ctx.beginPath();
             ctx.arc(0, 0, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 2. 검 (손잡이 + 장식 + 칼날)
+            // 2. 평타 공격 각도 계산
+            let swingAngle = 0;
+            if (p.isAttacking) {
+              // 0 -> 1Progress 동안 -1.2 라디안에서 +1.2 라디안으로 칼을 휘두름
+              swingAngle = -1.2 + (p.attackProgress * 2.4);
+            }
+
+            // 3. 검 렌더링
             ctx.save();
-            // 오른쪽 위(45도) 방향으로 검 세팅
-            ctx.rotate(-Math.PI / 4);
+            ctx.rotate(swingAngle);
+
+            // 휘두를 때 칼날 잔상/궤적 효과
+            if (p.isAttacking) {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.arc(0, 0, 16, -0.5, 0.5);
+              ctx.fill();
+            }
 
             // 손잡이 (브라운)
             ctx.fillStyle = '#653311';
@@ -496,25 +512,19 @@ app.get('/', (req, res) => {
             for (let id in players) {
               const p = players[id];
 
-              if (playerAngles[id] === undefined) playerAngles[id] = 0;
-
-              // 이동 방향 각도 계산
-              if (p.dirX !== 0 || p.dirY !== 0) {
-                playerAngles[id] = Math.atan2(p.dirY, p.dirX);
-              }
-
               ctx.save();
               ctx.translate(p.x, p.y);
               
-              // 캐릭터 이동 방향 회전
-              ctx.rotate(playerAngles[id]);
+              // 무조건 위쪽 40도 정도 (약 -40도 = -40 * Math.PI / 180) 바라보게 설정
+              const fixedAngle = -40 * (Math.PI / 180);
+              ctx.rotate(fixedAngle);
 
-              // 그려주는 가렌 피규어
-              drawSimpleGaren(ctx);
+              // 캐릭터 & 검 그리기
+              drawSimpleGaren(ctx, p);
 
               ctx.restore();
 
-              // 닉네임 표기 (회전되지 않도록 회전 로직 밖에서 렌더링)
+              // 닉네임 표기
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
@@ -596,7 +606,9 @@ io.on('connection', (socket) => {
     dirX: 0, 
     dirY: 0,
     username: socket.username,
-    team: team
+    team: team,
+    isAttacking: false,
+    attackProgress: 0
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
@@ -611,6 +623,14 @@ io.on('connection', (socket) => {
     if (players[socket.id]) {
       players[socket.id].dirX = dir.x;
       players[socket.id].dirY = dir.y;
+    }
+  });
+
+  socket.on('attack', () => {
+    const p = players[socket.id];
+    if (p && !p.isAttacking) {
+      p.isAttacking = true;
+      p.attackProgress = 0;
     }
   });
 
@@ -673,6 +693,16 @@ setInterval(() => {
   const SPEED = 0.75;
   for (let id in players) {
     const p = players[id];
+
+    // 공격 애니메이션 연산
+    if (p.isAttacking) {
+      p.attackProgress += 0.12; // 공격 속도
+      if (p.attackProgress >= 1) {
+        p.isAttacking = false;
+        p.attackProgress = 0;
+      }
+    }
+
     let moveX = p.dirX, moveY = p.dirY;
 
     if (moveX !== 0 && moveY !== 0) {
