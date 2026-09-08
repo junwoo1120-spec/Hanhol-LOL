@@ -384,6 +384,10 @@ app.get('/', (req, res) => {
               e.preventDefault();
               socket.emit('attack');
             }
+            if (e.key === 'q' || e.key === 'Q' || e.key === 'ㅂ') {
+              e.preventDefault();
+              socket.emit('useQ');
+            }
           });
 
           window.addEventListener('keyup', (e) => {
@@ -419,6 +423,10 @@ app.get('/', (req, res) => {
                 clientPlayers[id].attackProgress = sp.attackProgress;
                 clientPlayers[id].username = sp.username;
                 clientPlayers[id].team = sp.team;
+                clientPlayers[id].hp = sp.hp;
+                clientPlayers[id].maxHp = sp.maxHp;
+                clientPlayers[id].hasQBuff = sp.hasQBuff;
+                clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
               }
             }
 
@@ -442,35 +450,33 @@ app.get('/', (req, res) => {
             const dt = (currentTime - lastTime) / 1000;
             lastTime = currentTime;
 
-            const CLIENT_SPEED = 72; 
-
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
-              
-              // 방향에 따라 즉시 바라보는 각도 설정 (8방향 처리)
+              const baseSpeed = cp.hasSpeedBuff ? 97.2 : 72; // Q 스킬 이속 35% 증가 반영
+
               if (cp.dirX < 0 && cp.dirY < 0) {
-                cp.renderAngle = -140 * (Math.PI / 180); // 왼쪽 위
+                cp.renderAngle = -140 * (Math.PI / 180);
               } else if (cp.dirX > 0 && cp.dirY < 0) {
-                cp.renderAngle = -40 * (Math.PI / 180);  // 오른쪽 위
+                cp.renderAngle = -40 * (Math.PI / 180);
               } else if (cp.dirX < 0 && cp.dirY > 0) {
-                cp.renderAngle = 140 * (Math.PI / 180);  // 왼쪽 아래
+                cp.renderAngle = 140 * (Math.PI / 180);
               } else if (cp.dirX > 0 && cp.dirY > 0) {
-                cp.renderAngle = 40 * (Math.PI / 180);   // 오른쪽 아래
+                cp.renderAngle = 40 * (Math.PI / 180);
               } else if (cp.dirX < 0) {
-                cp.renderAngle = -140 * (Math.PI / 180); // 왼쪽
+                cp.renderAngle = -140 * (Math.PI / 180);
               } else if (cp.dirX > 0) {
-                cp.renderAngle = -40 * (Math.PI / 180);  // 오른쪽
+                cp.renderAngle = -40 * (Math.PI / 180);
               } else if (cp.dirY < 0) {
-                cp.renderAngle = -90 * (Math.PI / 180);  // 위쪽
+                cp.renderAngle = -90 * (Math.PI / 180);
               } else if (cp.dirY > 0) {
-                cp.renderAngle = 90 * (Math.PI / 180);   // 아래쪽
+                cp.renderAngle = 90 * (Math.PI / 180);
               }
 
               if (cp.dirX !== 0 || cp.dirY !== 0) {
                 let mx = cp.dirX, my = cp.dirY;
                 if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
-                cp.renderX += mx * CLIENT_SPEED * dt;
-                cp.renderY += my * CLIENT_SPEED * dt;
+                cp.renderX += mx * baseSpeed * dt;
+                cp.renderY += my * baseSpeed * dt;
               }
 
               cp.renderX += (cp.x - cp.renderX) * 0.2;
@@ -497,19 +503,24 @@ app.get('/', (req, res) => {
             ctx.save();
             ctx.rotate(swingAngle);
 
-            // 노란색 평타 잔상 효과
             if (p.isAttacking) {
-              ctx.fillStyle = 'rgba(255, 226, 104, 0.45)';
+              ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
               ctx.beginPath();
               ctx.moveTo(0, 0);
-              ctx.arc(0, 0, 16, -0.5, 0.5);
+              ctx.arc(0, 0, 18, -0.6, 0.6);
               ctx.fill();
+            }
+
+            // Q버프 노란 칼 이펙트
+            if (p.hasQBuff) {
+              ctx.shadowColor = '#FFE200';
+              ctx.shadowBlur = 10;
             }
 
             ctx.fillStyle = '#653311';
             ctx.fillRect(3, -0.6, 2.5, 1.2);
 
-            ctx.fillStyle = '#D1AC38';
+            ctx.fillStyle = p.hasQBuff ? '#FFF000' : '#D1AC38';
             ctx.beginPath();
             ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
             ctx.fill();
@@ -521,7 +532,7 @@ app.get('/', (req, res) => {
             ctx.fillStyle = '#1A1A1A';
             ctx.fillRect(7.2, -1, 7, 2);
 
-            ctx.fillStyle = '#A0A0A0';
+            ctx.fillStyle = p.hasQBuff ? '#FFFF88' : '#A0A0A0';
             ctx.beginPath();
             ctx.moveTo(7.2, -1.3);
             ctx.lineTo(13.5, -1.3);
@@ -571,14 +582,28 @@ app.get('/', (req, res) => {
 
               ctx.restore();
 
+              // 머리 위 체력바 (숫자 레이블 제외)
+              const barWidth = 14;
+              const barHeight = 2;
+              const barX = p.renderX - barWidth / 2;
+              const barY = p.renderY - 10;
+              const hpRatio = Math.max(0, p.hp / p.maxHp);
+
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+              ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
+
+              ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
+              ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+
+              // 닉네임 렌더링
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
               
               ctx.strokeStyle = '#000000';
               ctx.lineWidth = 0.8;
-              ctx.strokeText(p.username, p.renderX, p.renderY - 12);
-              ctx.fillText(p.username, p.renderX, p.renderY - 12);
+              ctx.strokeText(p.username, p.renderX, p.renderY - 13);
+              ctx.fillText(p.username, p.renderX, p.renderY - 13);
             }
             ctx.restore();
           }
@@ -655,7 +680,22 @@ io.on('connection', (socket) => {
     team: team,
     isAttacking: false,
     attackProgress: 0,
-    lastAttackTime: 0
+    lastAttackTime: 0,
+
+    // 가렌 기본 능력치
+    hp: 680,
+    maxHp: 680,
+    attackDamage: 68,
+    armor: 38,
+    magicResist: 32,
+    hpRegen: 8,
+
+    // 스태터스 및 Q 버프 상태
+    slow: null,
+    hasQBuff: false,
+    qBuffEndTime: 0,
+    hasSpeedBuff: false,
+    speedBuffEndTime: 0
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
@@ -673,6 +713,25 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('useQ', () => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    const now = Date.now();
+
+    // 1. 둔화 효과 제거
+    p.slow = null;
+
+    // 2. Q 평타 강화 버프 (4.5초)
+    p.hasQBuff = true;
+    p.qBuffEndTime = now + 4500;
+
+    // 3. 이동속도 35% 증가 (1초 ~ 3.6초 사이 랜덤)
+    const randomDuration = (1 + Math.random() * 2.6) * 1000;
+    p.hasSpeedBuff = true;
+    p.speedBuffEndTime = now + randomDuration;
+  });
+
   socket.on('attack', () => {
     const p = players[socket.id];
     const now = Date.now();
@@ -680,6 +739,28 @@ io.on('connection', (socket) => {
       p.isAttacking = true;
       p.attackProgress = 0;
       p.lastAttackTime = now;
+
+      // 피격 판정 및 데미지 계산
+      let damage = p.attackDamage;
+      if (p.hasQBuff) {
+        damage *= 1.5; // 강화 평타 1.5배 적용
+        p.hasQBuff = false; // 평타 적중 시 강화 평타 버프만 소멸 (이속 버프는 유지)
+      }
+
+      for (let targetId in players) {
+        if (targetId === socket.id) continue;
+        const target = players[targetId];
+        if (target.team === p.team) continue;
+
+        const dx = target.x - p.x;
+        const dy = target.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= 35) { // 사거리 내 적 피격
+          const finalDamage = Math.max(1, damage - target.armor); // 방어력에 따른 고정 차감
+          target.hp = Math.max(0, target.hp - finalDamage);
+        }
+      }
     }
   });
 
@@ -738,10 +819,25 @@ io.on('connection', (socket) => {
   });
 });
 
+// 서버 로직 루프 (초당 60회)
 setInterval(() => {
-  const SPEED = 1.2;
+  const now = Date.now();
+
   for (let id in players) {
     const p = players[id];
+
+    // 체력 재생 (초당 8씩)
+    if (p.hp < p.maxHp) {
+      p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
+    }
+
+    // 버프 타이머 체크
+    if (p.hasQBuff && now >= p.qBuffEndTime) {
+      p.hasQBuff = false;
+    }
+    if (p.hasSpeedBuff && now >= p.speedBuffEndTime) {
+      p.hasSpeedBuff = false;
+    }
 
     if (p.isAttacking) {
       p.attackProgress += 0.05;
@@ -751,14 +847,15 @@ setInterval(() => {
       }
     }
 
-    let moveX = p.dirX, moveY = p.dirY;
+    const currentSpeed = p.hasSpeedBuff ? 1.2 * 1.35 : 1.2;
 
+    let moveX = p.dirX, moveY = p.dirY;
     if (moveX !== 0 && moveY !== 0) {
       moveX *= 0.7071; moveY *= 0.7071;
     }
 
-    const nextX = p.x + moveX * SPEED;
-    const nextY = p.y + moveY * SPEED;
+    const nextX = p.x + moveX * currentSpeed;
+    const nextY = p.y + moveY * currentSpeed;
 
     if (nextX >= 10 && nextX <= MAP_SIZE - 10 && !isColliding(nextX, p.y)) p.x = nextX;
     if (nextY >= 10 && nextY <= MAP_SIZE - 10 && !isColliding(p.x, nextY)) p.y = nextY;
