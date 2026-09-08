@@ -79,7 +79,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Summoner's Rift Classic - High Quality Garen</title>
+      <title>Summoner's Rift Classic - Custom Garen</title>
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; }
@@ -103,7 +103,7 @@ app.get('/', (req, res) => {
         .auth-box button:hover { background: #0066cc; }
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
 
-        /* === 상단 플레이어 리스트 UI === */
+        /* === 접속자 리스트 UI === */
         #player-list-container {
           position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
@@ -358,11 +358,8 @@ app.get('/', (req, res) => {
           const mapImage = new Image();
           mapImage.src = 'web.webp';
 
-          // 고화질 가렌 스프라이트 시트 로드
-          const garenImage = new Image();
-          garenImage.src = 'garen_walk.png';
-
-          let playerAnimStates = {};
+          // 방향 저장을 위한 객체
+          let playerAngles = {};
 
           let players = {};
           const keys = {};
@@ -424,6 +421,61 @@ app.get('/', (req, res) => {
           }
           requestAnimationFrame(renderLoop);
 
+          // 이미지 대신 직접 그리는 노란 원 + 검 가렌 렌더링 함수
+          function drawSimpleGaren(ctx) {
+            // 1. 노란색 캐릭터 몸체 (원)
+            ctx.fillStyle = '#FFE268';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 2. 검 (손잡이 + 장식 + 칼날)
+            ctx.save();
+            // 오른쪽 위(45도) 방향으로 검 세팅
+            ctx.rotate(-Math.PI / 4);
+
+            // 손잡이 (브라운)
+            ctx.fillStyle = '#653311';
+            ctx.fillRect(3, -0.6, 2.5, 1.2);
+
+            // 십자 장식 (골드)
+            ctx.fillStyle = '#D1AC38';
+            ctx.beginPath();
+            ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 장식 가시
+            ctx.beginPath();
+            ctx.moveTo(6, -2.5); ctx.lineTo(7, 0); ctx.lineTo(6, 2.5); ctx.lineTo(5, 0);
+            ctx.fill();
+
+            // 칼날 베이스 (다크 스틸)
+            ctx.fillStyle = '#1A1A1A';
+            ctx.fillRect(7.2, -1, 7, 2);
+
+            // 칼날 테두리/외형 (실버)
+            ctx.fillStyle = '#A0A0A0';
+            ctx.beginPath();
+            ctx.moveTo(7.2, -1.3);
+            ctx.lineTo(13.5, -1.3);
+            ctx.lineTo(16, 0);
+            ctx.lineTo(13.5, 1.3);
+            ctx.lineTo(7.2, 1.3);
+            ctx.fill();
+
+            // 칼날 중앙 문양
+            ctx.fillStyle = '#1A1A1A';
+            ctx.fillRect(8, -0.7, 5.5, 1.4);
+
+            // 골드 보석 장식
+            ctx.fillStyle = '#D1AC38';
+            ctx.beginPath();
+            ctx.arc(8.5, 0, 0.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+          }
+
           function drawGame() {
             const me = players[socket.id];
             ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -444,60 +496,33 @@ app.get('/', (req, res) => {
             for (let id in players) {
               const p = players[id];
 
-              if (!playerAnimStates[id]) {
-                playerAnimStates[id] = { frame: 0, timer: 0, facingLeft: false };
-              }
-              const anim = playerAnimStates[id];
+              if (playerAngles[id] === undefined) playerAngles[id] = 0;
 
-              const isMoving = (p.dirX !== 0 || p.dirY !== 0);
-
-              if (p.dirX < 0) anim.facingLeft = true;
-              else if (p.dirX > 0) anim.facingLeft = false;
-
-              if (isMoving) {
-                anim.timer++;
-                if (anim.timer % 6 === 0) { // 애니메이션 속도
-                  anim.frame = (anim.frame + 1) % 4;
-                }
-              } else {
-                anim.frame = 0;
+              // 이동 방향 각도 계산
+              if (p.dirX !== 0 || p.dirY !== 0) {
+                playerAngles[id] = Math.atan2(p.dirY, p.dirX);
               }
 
               ctx.save();
               ctx.translate(p.x, p.y);
+              
+              // 캐릭터 이동 방향 회전
+              ctx.rotate(playerAngles[id]);
 
-              // 이동 방향에 따라 좌우 반전
-              if (anim.facingLeft) {
-                ctx.scale(-1, 1);
-              }
-
-              // 고화질 가렌 스프라이트 그리기 (가로 4분할 구조 자동 계산)
-              if (garenImage.complete && garenImage.naturalWidth !== 0) {
-                const frameWidth = garenImage.width / 4;
-                const frameHeight = garenImage.height;
-                ctx.drawImage(
-                  garenImage,
-                  anim.frame * frameWidth, 0,
-                  frameWidth, frameHeight,
-                  -10, -14, 20, 20
-                );
-              } else {
-                // 백업 그래픽 (이미지 로드 실패 시)
-                ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
-                ctx.beginPath(); ctx.arc(0, 0, 4.2, 0, Math.PI * 2); ctx.fill();
-              }
+              // 그려주는 가렌 피규어
+              drawSimpleGaren(ctx);
 
               ctx.restore();
 
-              // 팀 구분을 위한 닉네임 색상 변경 (블루/레드)
+              // 닉네임 표기 (회전되지 않도록 회전 로직 밖에서 렌더링)
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
               
               ctx.strokeStyle = '#000000';
               ctx.lineWidth = 0.8;
-              ctx.strokeText(p.username, p.x, p.y - 12);
-              ctx.fillText(p.username, p.x, p.y - 12);
+              ctx.strokeText(p.username, p.x, p.y - 10);
+              ctx.fillText(p.username, p.x, p.y - 10);
             }
             ctx.restore();
           }
