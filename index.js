@@ -103,7 +103,6 @@ app.get('/', (req, res) => {
         .auth-box button:hover { background: #0066cc; }
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
 
-        /* === 접속자 리스트 UI === */
         #player-list-container {
           position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
@@ -133,7 +132,6 @@ app.get('/', (req, res) => {
         }
         .kick-btn:hover { background: #cc0000; }
 
-        /* === 채팅 UI === */
         #chat-container {
           position: absolute; left: 24px; bottom: 24px; width: 336px;
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
@@ -174,7 +172,6 @@ app.get('/', (req, res) => {
         }
         #chat-send-btn:hover { background: #0066cc; }
 
-        /* === 미니맵 UI === */
         #minimap-container {
           position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
           background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
@@ -452,7 +449,9 @@ app.get('/', (req, res) => {
 
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
-              const baseSpeed = cp.hasSpeedBuff ? 97.2 : 72; // Q 스킬 이속 35% 증가 반영
+              
+              // 넥서스간 1분 이동 기준속도 (36.8 px/s)
+              const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
 
               if (cp.dirX < 0 && cp.dirY < 0) {
                 cp.renderAngle = -140 * (Math.PI / 180);
@@ -511,7 +510,6 @@ app.get('/', (req, res) => {
               ctx.fill();
             }
 
-            // Q버프 노란 칼 이펙트
             if (p.hasQBuff) {
               ctx.shadowColor = '#FFE200';
               ctx.shadowBlur = 10;
@@ -582,7 +580,7 @@ app.get('/', (req, res) => {
 
               ctx.restore();
 
-              // 머리 위 체력바 (숫자 레이블 제외)
+              // 체력바 (숫자 표시 없음)
               const barWidth = 14;
               const barHeight = 2;
               const barX = p.renderX - barWidth / 2;
@@ -595,7 +593,7 @@ app.get('/', (req, res) => {
               ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
               ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
 
-              // 닉네임 렌더링
+              // 닉네임
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
@@ -668,8 +666,8 @@ io.on('connection', (socket) => {
   
   socket.join(team);
 
-  const spawnX = team === 'blue' ? 100 : 1900;
-  const spawnY = team === 'blue' ? 1900 : 100;
+  const spawnX = team === 'blue' ? 225 : 1786;
+  const spawnY = team === 'blue' ? 1766 : 223;
 
   players[socket.id] = { 
     x: spawnX, 
@@ -682,7 +680,7 @@ io.on('connection', (socket) => {
     attackProgress: 0,
     lastAttackTime: 0,
 
-    // 가렌 기본 능력치
+    // 가렌 능력치
     hp: 680,
     maxHp: 680,
     attackDamage: 68,
@@ -690,7 +688,11 @@ io.on('connection', (socket) => {
     magicResist: 32,
     hpRegen: 8,
 
-    // 스태터스 및 Q 버프 상태
+    // Q 쿨타임 (8000ms = 8초)
+    qCooldown: 8000,
+    lastQTime: 0,
+
+    // 버프 및 스태터스
     slow: null,
     hasQBuff: false,
     qBuffEndTime: 0,
@@ -719,7 +721,12 @@ io.on('connection', (socket) => {
 
     const now = Date.now();
 
-    // 1. 둔화 효과 제거
+    // Q 스킬 쿨타임 검사 (8초)
+    if (now - p.lastQTime < p.qCooldown) return;
+
+    p.lastQTime = now;
+
+    // 1. 둔화 해제
     p.slow = null;
 
     // 2. Q 평타 강화 버프 (4.5초)
@@ -740,11 +747,10 @@ io.on('connection', (socket) => {
       p.attackProgress = 0;
       p.lastAttackTime = now;
 
-      // 피격 판정 및 데미지 계산
       let damage = p.attackDamage;
       if (p.hasQBuff) {
-        damage *= 1.5; // 강화 평타 1.5배 적용
-        p.hasQBuff = false; // 평타 적중 시 강화 평타 버프만 소멸 (이속 버프는 유지)
+        damage *= 1.5;
+        p.hasQBuff = false; // 강화 평타 적용 후 평타 버프만 제거 (이속 버프는 유지)
       }
 
       for (let targetId in players) {
@@ -756,8 +762,8 @@ io.on('connection', (socket) => {
         const dy = target.y - p.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist <= 35) { // 사거리 내 적 피격
-          const finalDamage = Math.max(1, damage - target.armor); // 방어력에 따른 고정 차감
+        if (dist <= 35) {
+          const finalDamage = Math.max(1, damage - target.armor);
           target.hp = Math.max(0, target.hp - finalDamage);
         }
       }
@@ -819,14 +825,14 @@ io.on('connection', (socket) => {
   });
 });
 
-// 서버 로직 루프 (초당 60회)
+// 서버 물리 로직 루프 (초당 60회)
 setInterval(() => {
   const now = Date.now();
 
   for (let id in players) {
     const p = players[id];
 
-    // 체력 재생 (초당 8씩)
+    // 체력 재생 (초당 8)
     if (p.hp < p.maxHp) {
       p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
     }
@@ -847,7 +853,8 @@ setInterval(() => {
       }
     }
 
-    const currentSpeed = p.hasSpeedBuff ? 1.2 * 1.35 : 1.2;
+    // 미드 직진 1분 이동 속도 설정 (기본: 0.613 px/tick = 약 36.8 px/s, Q이속: +35%)
+    const currentSpeed = p.hasSpeedBuff ? 0.6133 * 1.35 : 0.6133;
 
     let moveX = p.dirX, moveY = p.dirY;
     if (moveX !== 0 && moveY !== 0) {
