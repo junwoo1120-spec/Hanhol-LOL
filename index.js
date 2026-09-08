@@ -358,7 +358,8 @@ app.get('/', (req, res) => {
           const mapImage = new Image();
           mapImage.src = 'web.webp';
 
-          let players = {};
+          let serverPlayers = {};
+          let clientPlayers = {}; // 부드러운 이동(Interpolation)을 위한 객체
           const keys = {};
           let camX = 1000, camY = 1000;
 
@@ -402,8 +403,30 @@ app.get('/', (req, res) => {
           }
 
           socket.on('gameState', (data) => { 
-            players = data.players; 
-            updatePlayerListUI(players);
+            serverPlayers = data.players; 
+            updatePlayerListUI(serverPlayers);
+
+            // 클라이언트 위치 정보 업데이트 및 동기화
+            for (let id in serverPlayers) {
+              const sp = serverPlayers[id];
+              if (!clientPlayers[id]) {
+                clientPlayers[id] = { ...sp, renderX: sp.x, renderY: sp.y, renderAngle: -40 * (Math.PI / 180) };
+              } else {
+                clientPlayers[id].x = sp.x;
+                clientPlayers[id].y = sp.y;
+                clientPlayers[id].dirX = sp.dirX;
+                clientPlayers[id].dirY = sp.dirY;
+                clientPlayers[id].isAttacking = sp.isAttacking;
+                clientPlayers[id].attackProgress = sp.attackProgress;
+                clientPlayers[id].username = sp.username;
+                clientPlayers[id].team = sp.team;
+              }
+            }
+
+            // 퇴장한 플레이어 제거
+            for (let id in clientPlayers) {
+              if (!serverPlayers[id]) delete clientPlayers[id];
+            }
           });
 
           socket.on('chatMessage', (data) => {
@@ -416,32 +439,53 @@ app.get('/', (req, res) => {
           });
 
           function renderLoop() {
+            // 부드러운 위치/방향 업데이트 (Lerp)
+            for (let id in clientPlayers) {
+              const cp = clientPlayers[id];
+              
+              // 위치 보간
+              cp.renderX += (cp.x - cp.renderX) * 0.35;
+              cp.renderY += (cp.y - cp.renderY) * 0.35;
+
+              // 이동 방향에 따른 목표 각도 계산
+              let targetAngle = cp.renderAngle;
+              if (cp.dirX < 0) {
+                targetAngle = -140 * (Math.PI / 180); // 왼쪽 이동 시: 왼쪽 위 40도
+              } else if (cp.dirX > 0) {
+                targetAngle = -40 * (Math.PI / 180);  // 오른쪽 이동 시: 오른쪽 위 40도
+              } else if (cp.dirY < 0) {
+                targetAngle = -90 * (Math.PI / 180);  // 위쪽 이동 시: 직선 위
+              } else if (cp.dirY > 0) {
+                targetAngle = 90 * (Math.PI / 180);   // 아래쪽 이동 시: 직선 아래
+              }
+
+              // 각도 보간 (회전 부드럽게)
+              let diff = targetAngle - cp.renderAngle;
+              while (diff < -Math.PI) diff += Math.PI * 2;
+              while (diff > Math.PI) diff -= Math.PI * 2;
+              cp.renderAngle += diff * 0.2;
+            }
+
             drawGame();
             drawMinimap();
             requestAnimationFrame(renderLoop);
           }
           requestAnimationFrame(renderLoop);
 
-          // 노란 원 + 검 가렌 (평타 휘두르기 애니메이션 포함)
           function drawSimpleGaren(ctx, p) {
-            // 1. 노란색 캐릭터 몸체 (원)
             ctx.fillStyle = '#FFE268';
             ctx.beginPath();
             ctx.arc(0, 0, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 2. 평타 공격 각도 계산
             let swingAngle = 0;
             if (p.isAttacking) {
-              // 0 -> 1Progress 동안 -1.2 라디안에서 +1.2 라디안으로 칼을 휘두름
               swingAngle = -1.2 + (p.attackProgress * 2.4);
             }
 
-            // 3. 검 렌더링
             ctx.save();
             ctx.rotate(swingAngle);
 
-            // 휘두를 때 칼날 잔상/궤적 효과
             if (p.isAttacking) {
               ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
               ctx.beginPath();
@@ -450,26 +494,21 @@ app.get('/', (req, res) => {
               ctx.fill();
             }
 
-            // 손잡이 (브라운)
             ctx.fillStyle = '#653311';
             ctx.fillRect(3, -0.6, 2.5, 1.2);
 
-            // 십자 장식 (골드)
             ctx.fillStyle = '#D1AC38';
             ctx.beginPath();
             ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
             ctx.fill();
 
-            // 장식 가시
             ctx.beginPath();
             ctx.moveTo(6, -2.5); ctx.lineTo(7, 0); ctx.lineTo(6, 2.5); ctx.lineTo(5, 0);
             ctx.fill();
 
-            // 칼날 베이스 (다크 스틸)
             ctx.fillStyle = '#1A1A1A';
             ctx.fillRect(7.2, -1, 7, 2);
 
-            // 칼날 테두리/외형 (실버)
             ctx.fillStyle = '#A0A0A0';
             ctx.beginPath();
             ctx.moveTo(7.2, -1.3);
@@ -479,11 +518,9 @@ app.get('/', (req, res) => {
             ctx.lineTo(7.2, 1.3);
             ctx.fill();
 
-            // 칼날 중앙 문양
             ctx.fillStyle = '#1A1A1A';
             ctx.fillRect(8, -0.7, 5.5, 1.4);
 
-            // 골드 보석 장식
             ctx.fillStyle = '#D1AC38';
             ctx.beginPath();
             ctx.arc(8.5, 0, 0.5, 0, Math.PI * 2);
@@ -493,13 +530,13 @@ app.get('/', (req, res) => {
           }
 
           function drawGame() {
-            const me = players[socket.id];
+            const me = clientPlayers[socket.id];
             ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.save();
             
             if (me) {
-              camX += (me.x - camX) * 0.15;
-              camY += (me.y - camY) * 0.15;
+              camX += (me.renderX - camX) * 0.15;
+              camY += (me.renderY - camY) * 0.15;
               const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
               ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
               ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
@@ -509,30 +546,27 @@ app.get('/', (req, res) => {
               ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
             }
 
-            for (let id in players) {
-              const p = players[id];
+            for (let id in clientPlayers) {
+              const p = clientPlayers[id];
 
               ctx.save();
-              ctx.translate(p.x, p.y);
+              ctx.translate(p.renderX, p.renderY);
               
-              // 무조건 위쪽 40도 정도 (약 -40도 = -40 * Math.PI / 180) 바라보게 설정
-              const fixedAngle = -40 * (Math.PI / 180);
-              ctx.rotate(fixedAngle);
+              // 보간된 실시간 방향 적용
+              ctx.rotate(p.renderAngle);
 
-              // 캐릭터 & 검 그리기
               drawSimpleGaren(ctx, p);
 
               ctx.restore();
 
-              // 닉네임 표기
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
               
               ctx.strokeStyle = '#000000';
               ctx.lineWidth = 0.8;
-              ctx.strokeText(p.username, p.x, p.y - 10);
-              ctx.fillText(p.username, p.x, p.y - 10);
+              ctx.strokeText(p.username, p.renderX, p.renderY - 10);
+              ctx.fillText(p.username, p.renderX, p.renderY - 10);
             }
             ctx.restore();
           }
@@ -546,15 +580,15 @@ app.get('/', (req, res) => {
               miniCtx.drawImage(mapImage, 0, 0, 180, 180);
             }
 
-            const me = players[socket.id];
+            const me = clientPlayers[socket.id];
 
-            for (let id in players) {
-              const p = players[id];
+            for (let id in clientPlayers) {
+              const p = clientPlayers[id];
 
               if (me && p.team !== me.team) continue;
 
-              const mx = p.x * scale;
-              const my = p.y * scale;
+              const mx = p.renderX * scale;
+              const my = p.renderY * scale;
 
               miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
               miniCtx.beginPath();
@@ -690,13 +724,12 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const SPEED = 0.75;
+  const SPEED = 1.2; // 부드러운 움직임 보정에 맞춰 이동 속도를 소폭 조정
   for (let id in players) {
     const p = players[id];
 
-    // 공격 애니메이션 연산
     if (p.isAttacking) {
-      p.attackProgress += 0.12; // 공격 속도
+      p.attackProgress += 0.12;
       if (p.attackProgress >= 1) {
         p.isAttacking = false;
         p.attackProgress = 0;
