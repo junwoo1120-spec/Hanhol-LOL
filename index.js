@@ -79,7 +79,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Summoner's Rift Classic</title>
+      <title>Summoner's Rift Classic - Garen</title>
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; }
@@ -241,7 +241,6 @@ app.get('/', (req, res) => {
           }
         }
 
-        // 강퇴 명령 발송 (박준우 전용)
         function kickPlayer(targetId, targetName) {
           if (confirm(\`'\${targetName}' 님을 강퇴하시겠습니까?\`)) {
             socket.emit('kickPlayer', targetId);
@@ -264,7 +263,6 @@ app.get('/', (req, res) => {
             nameSpan.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
             item.appendChild(nameSpan);
 
-            // 본인 닉네임이 '박준우'이고 타겟이 타인인 경우 강퇴 버튼 노출
             if (myUsername === '박준우' && id !== socket.id) {
               let kickBtn = document.createElement('button');
               kickBtn.className = 'kick-btn';
@@ -361,6 +359,12 @@ app.get('/', (req, res) => {
           const mapImage = new Image();
           mapImage.src = 'web.webp';
 
+          // === 가렌 스프라이트 관련 이미지 및 변수 설정 ===
+          const garenImage = new Image();
+          garenImage.src = 'garen_walk.png'; // 가렌 스프라이트 파일 경로
+
+          let playerAnimStates = {}; // 플레이어별 애니메이션 프레임 관리
+
           let players = {};
           const keys = {};
           let camX = 1000, camY = 1000;
@@ -409,7 +413,6 @@ app.get('/', (req, res) => {
             appendChatMessage(data.username, data.text, data.team, data.isSystem, data.targetMode);
           });
 
-          // 강퇴 통보 수신 시 처리
           socket.on('kicked', (reason) => {
             alert(reason || '방장에 의해 강제 퇴장되었습니다.');
             window.location.reload();
@@ -442,20 +445,95 @@ app.get('/', (req, res) => {
             for (let id in players) {
               const p = players[id];
 
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-              ctx.beginPath(); ctx.arc(p.x + 0.5, p.y + 0.5, 4.2, 0, Math.PI * 2); ctx.fill();
+              // 플레이어 상태 카운터 초기화
+              if (!playerAnimStates[id]) {
+                playerAnimStates[id] = { frame: 0, timer: 0, facingLeft: false };
+              }
+              const anim = playerAnimStates[id];
 
-              ctx.fillStyle = p.team === 'blue' ? '#0077ff' : '#ff2222';
-              ctx.beginPath(); ctx.arc(p.x, p.y, 4.2, 0, Math.PI * 2); ctx.fill();
-              
-              ctx.lineWidth = 0.8;
-              ctx.strokeStyle = '#000000';
-              ctx.stroke();
+              const isMoving = (p.dirX !== 0 || p.dirY !== 0);
 
-              ctx.fillStyle = '#ffffff';
+              // 이동 방향 기록 (좌/우)
+              if (p.dirX < 0) anim.facingLeft = true;
+              else if (p.dirX > 0) anim.facingLeft = false;
+
+              // 이동 중일 때만 걷는 애니메이션 프레임 진행
+              if (isMoving) {
+                anim.timer++;
+                if (anim.timer % 8 === 0) {
+                  anim.frame = (anim.frame + 1) % 4; // 4단계 걷기 동작
+                }
+              } else {
+                anim.frame = 0; // 정지 시 차려 자세
+              }
+
+              ctx.save();
+              ctx.translate(p.x, p.y);
+
+              // 왼쪽을 바라볼 때 이미지 좌우 반전
+              if (anim.facingLeft) {
+                ctx.scale(-1, 1);
+              }
+
+              // 이미지 로드 시 스프라이트 렌더링, 미로드 시 가렌 형상 대체그리기
+              if (garenImage.complete && garenImage.naturalWidth !== 0) {
+                const FRAME_WIDTH = garenImage.width / 4;
+                const FRAME_HEIGHT = garenImage.height;
+                ctx.drawImage(
+                  garenImage,
+                  anim.frame * FRAME_WIDTH, 0,
+                  FRAME_WIDTH, FRAME_HEIGHT,
+                  -8, -12, 16, 16
+                );
+              } else {
+                // 백업 가렌 캐릭터 (어깨 갑옷 & 갑옷 & 장검)
+                let legOffset = isMoving ? Math.sin(anim.timer * 0.2) * 2 : 0;
+
+                // 그림자
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.beginPath(); ctx.ellipse(0, 4, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+
+                // 다리
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(-2 + legOffset, 1, 2, 4);
+                ctx.fillRect(0 - legOffset, 1, 2, 4);
+
+                // 몸통 (블루 갑옷)
+                ctx.fillStyle = '#1d4ed8';
+                ctx.fillRect(-3.5, -4, 7, 6);
+
+                // 어깨 갑옷 (골드)
+                ctx.fillStyle = '#eab308';
+                ctx.beginPath(); ctx.arc(-3.5, -4, 2.2, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(3.5, -4, 2.2, 0, Math.PI * 2); ctx.fill();
+
+                // 머리
+                ctx.fillStyle = '#78350f';
+                ctx.beginPath(); ctx.arc(0, -6.5, 2.2, 0, Math.PI * 2); ctx.fill();
+
+                // 대검 (손에 든 무기)
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(3, -2);
+                ctx.lineTo(8 + (isMoving ? Math.cos(anim.timer * 0.2) * 1.5 : 0), -7);
+                ctx.stroke();
+              }
+
+              ctx.restore();
+
+              // === 닉네임 표시 (팀 식별을 위한 닉네임 색상 구별) ===
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText(p.username, p.x, p.y - 6);
+
+              // 팀별 닉네임 색상 적용 (블루: 하늘색 / 레드: 연빨강)
+              ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
+              
+              // 닉네임 가독성을 위한 테두리(Stroke) 효과
+              ctx.strokeStyle = '#000000';
+              ctx.lineWidth = 0.8;
+              ctx.strokeText(p.username, p.x, p.y - 12);
+              ctx.fillText(p.username, p.x, p.y - 12);
             }
             ctx.restore();
           }
@@ -547,7 +625,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 강퇴 요청 처리 (서버 권한 재검증 포함)
   socket.on('kickPlayer', (targetSocketId) => {
     if (socket.username === '박준우') {
       const targetSocket = io.sockets.sockets.get(targetSocketId);
