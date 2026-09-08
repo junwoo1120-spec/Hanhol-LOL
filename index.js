@@ -442,23 +442,21 @@ app.get('/', (req, res) => {
             const dt = (currentTime - lastTime) / 1000;
             lastTime = currentTime;
 
-            const CLIENT_SPEED = 120; // 클라이언트 자체 실시간 예측 이동 속도
+            const CLIENT_SPEED = 72; 
 
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              // 1. 방향 각도 즉시 변경 (돌아가지 않고 즉시 조준)
               if (cp.dirX < 0) {
-                cp.renderAngle = -140 * (Math.PI / 180); // 왼쪽 이동: 왼쪽 위 40도
+                cp.renderAngle = -140 * (Math.PI / 180);
               } else if (cp.dirX > 0) {
-                cp.renderAngle = -40 * (Math.PI / 180);  // 오른쪽 이동: 오른쪽 위 40도
+                cp.renderAngle = -40 * (Math.PI / 180);
               } else if (cp.dirY < 0) {
-                cp.renderAngle = -90 * (Math.PI / 180);  // 위쪽 이동
+                cp.renderAngle = -90 * (Math.PI / 180);
               } else if (cp.dirY > 0) {
-                cp.renderAngle = 90 * (Math.PI / 180);   // 아래쪽 이동
+                cp.renderAngle = 90 * (Math.PI / 180);
               }
 
-              // 2. 실시간 클라이언트 예측 이동 (무빙 끊김 방지)
               if (cp.dirX !== 0 || cp.dirY !== 0) {
                 let mx = cp.dirX, my = cp.dirY;
                 if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
@@ -466,7 +464,6 @@ app.get('/', (req, res) => {
                 cp.renderY += my * CLIENT_SPEED * dt;
               }
 
-              // 3. 서버 위치와 미세 보정 (서버 핑과의 완충)
               cp.renderX += (cp.x - cp.renderX) * 0.2;
               cp.renderY += (cp.y - cp.renderY) * 0.2;
             }
@@ -557,6 +554,7 @@ app.get('/', (req, res) => {
               ctx.save();
               ctx.translate(p.renderX, p.renderY);
               
+              ctx.scale(1.3, 1.3);
               ctx.rotate(p.renderAngle);
 
               drawSimpleGaren(ctx, p);
@@ -569,8 +567,8 @@ app.get('/', (req, res) => {
               
               ctx.strokeStyle = '#000000';
               ctx.lineWidth = 0.8;
-              ctx.strokeText(p.username, p.renderX, p.renderY - 10);
-              ctx.fillText(p.username, p.renderX, p.renderY - 10);
+              ctx.strokeText(p.username, p.renderX, p.renderY - 12);
+              ctx.fillText(p.username, p.renderX, p.renderY - 12);
             }
             ctx.restore();
           }
@@ -646,7 +644,8 @@ io.on('connection', (socket) => {
     username: socket.username,
     team: team,
     isAttacking: false,
-    attackProgress: 0
+    attackProgress: 0,
+    lastAttackTime: 0 // 공격 쿨타임용 시각 기록
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
@@ -666,9 +665,12 @@ io.on('connection', (socket) => {
 
   socket.on('attack', () => {
     const p = players[socket.id];
-    if (p && !p.isAttacking) {
+    const now = Date.now();
+    // 쿨타임 1000ms(1초) 체크
+    if (p && !p.isAttacking && (now - p.lastAttackTime >= 1000)) {
       p.isAttacking = true;
       p.attackProgress = 0;
+      p.lastAttackTime = now;
     }
   });
 
@@ -728,12 +730,13 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const SPEED = 2.0; 
+  const SPEED = 1.2;
   for (let id in players) {
     const p = players[id];
 
     if (p.isAttacking) {
-      p.attackProgress += 0.12;
+      // 휘두르는 애니메이션 진행 속도를 적절하게 조절
+      p.attackProgress += 0.05;
       if (p.attackProgress >= 1) {
         p.isAttacking = false;
         p.attackProgress = 0;
