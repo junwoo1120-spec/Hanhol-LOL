@@ -359,7 +359,7 @@ app.get('/', (req, res) => {
           mapImage.src = 'web.webp';
 
           let serverPlayers = {};
-          let clientPlayers = {}; // 부드러운 이동(Interpolation)을 위한 객체
+          let clientPlayers = {};
           const keys = {};
           let camX = 1000, camY = 1000;
 
@@ -406,7 +406,6 @@ app.get('/', (req, res) => {
             serverPlayers = data.players; 
             updatePlayerListUI(serverPlayers);
 
-            // 클라이언트 위치 정보 업데이트 및 동기화
             for (let id in serverPlayers) {
               const sp = serverPlayers[id];
               if (!clientPlayers[id]) {
@@ -423,7 +422,6 @@ app.get('/', (req, res) => {
               }
             }
 
-            // 퇴장한 플레이어 제거
             for (let id in clientPlayers) {
               if (!serverPlayers[id]) delete clientPlayers[id];
             }
@@ -438,32 +436,39 @@ app.get('/', (req, res) => {
             window.location.reload();
           });
 
-          function renderLoop() {
-            // 부드러운 위치/방향 업데이트 (Lerp)
+          let lastTime = performance.now();
+
+          function renderLoop(currentTime) {
+            const dt = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            const CLIENT_SPEED = 120; // 클라이언트 자체 실시간 예측 이동 속도
+
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              // 위치 보간
-              cp.renderX += (cp.x - cp.renderX) * 0.35;
-              cp.renderY += (cp.y - cp.renderY) * 0.35;
-
-              // 이동 방향에 따른 목표 각도 계산
-              let targetAngle = cp.renderAngle;
+              // 1. 방향 각도 즉시 변경 (돌아가지 않고 즉시 조준)
               if (cp.dirX < 0) {
-                targetAngle = -140 * (Math.PI / 180); // 왼쪽 이동 시: 왼쪽 위 40도
+                cp.renderAngle = -140 * (Math.PI / 180); // 왼쪽 이동: 왼쪽 위 40도
               } else if (cp.dirX > 0) {
-                targetAngle = -40 * (Math.PI / 180);  // 오른쪽 이동 시: 오른쪽 위 40도
+                cp.renderAngle = -40 * (Math.PI / 180);  // 오른쪽 이동: 오른쪽 위 40도
               } else if (cp.dirY < 0) {
-                targetAngle = -90 * (Math.PI / 180);  // 위쪽 이동 시: 직선 위
+                cp.renderAngle = -90 * (Math.PI / 180);  // 위쪽 이동
               } else if (cp.dirY > 0) {
-                targetAngle = 90 * (Math.PI / 180);   // 아래쪽 이동 시: 직선 아래
+                cp.renderAngle = 90 * (Math.PI / 180);   // 아래쪽 이동
               }
 
-              // 각도 보간 (회전 부드럽게)
-              let diff = targetAngle - cp.renderAngle;
-              while (diff < -Math.PI) diff += Math.PI * 2;
-              while (diff > Math.PI) diff -= Math.PI * 2;
-              cp.renderAngle += diff * 0.2;
+              // 2. 실시간 클라이언트 예측 이동 (무빙 끊김 방지)
+              if (cp.dirX !== 0 || cp.dirY !== 0) {
+                let mx = cp.dirX, my = cp.dirY;
+                if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
+                cp.renderX += mx * CLIENT_SPEED * dt;
+                cp.renderY += my * CLIENT_SPEED * dt;
+              }
+
+              // 3. 서버 위치와 미세 보정 (서버 핑과의 완충)
+              cp.renderX += (cp.x - cp.renderX) * 0.2;
+              cp.renderY += (cp.y - cp.renderY) * 0.2;
             }
 
             drawGame();
@@ -535,8 +540,8 @@ app.get('/', (req, res) => {
             ctx.save();
             
             if (me) {
-              camX += (me.renderX - camX) * 0.15;
-              camY += (me.renderY - camY) * 0.15;
+              camX += (me.renderX - camX) * 0.2;
+              camY += (me.renderY - camY) * 0.2;
               const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
               ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
               ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
@@ -552,7 +557,6 @@ app.get('/', (req, res) => {
               ctx.save();
               ctx.translate(p.renderX, p.renderY);
               
-              // 보간된 실시간 방향 적용
               ctx.rotate(p.renderAngle);
 
               drawSimpleGaren(ctx, p);
@@ -724,7 +728,7 @@ io.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const SPEED = 1.2; // 부드러운 움직임 보정에 맞춰 이동 속도를 소폭 조정
+  const SPEED = 2.0; 
   for (let id in players) {
     const p = players[id];
 
