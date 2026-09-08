@@ -109,7 +109,7 @@ app.get('/', (req, res) => {
           background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
           border-radius: 8px; z-index: 5; display: none; flex-direction: column;
           box-shadow: 0 4px 15px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
-          min-width: 180px; text-align: center; overflow: hidden;
+          min-width: 220px; text-align: center; overflow: hidden;
         }
         #player-list-header {
           padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer;
@@ -118,12 +118,20 @@ app.get('/', (req, res) => {
         }
         #player-list-header:hover { background: rgba(255, 255, 255, 0.15); }
         #player-list-content {
-          display: none; padding: 10px; max-height: 150px; overflow-y: auto;
+          display: none; padding: 10px; max-height: 180px; overflow-y: auto;
           border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 13px;
         }
-        .player-item { padding: 4px 0; font-weight: bold; }
+        .player-item {
+          padding: 5px 0; font-weight: bold; display: flex;
+          justify-content: space-between; align-items: center; gap: 8px;
+        }
         .player-item.blue { color: #00aaff; }
         .player-item.red { color: #ff4444; }
+        .kick-btn {
+          background: #ff2222; color: #fff; border: none; padding: 2px 6px;
+          border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;
+        }
+        .kick-btn:hover { background: #cc0000; }
 
         /* === 채팅 UI === */
         #chat-container {
@@ -177,7 +185,6 @@ app.get('/', (req, res) => {
       </style>
     </head>
     <body>
-      <!-- 게스트 로그인 화면 -->
       <div id="auth-screen">
         <div class="auth-box">
           <h2>게스트 입장</h2>
@@ -234,18 +241,38 @@ app.get('/', (req, res) => {
           }
         }
 
+        // 강퇴 명령 발송 (박준우 전용)
+        function kickPlayer(targetId, targetName) {
+          if (confirm(\`'\${targetName}' 님을 강퇴하시겠습니까?\`)) {
+            socket.emit('kickPlayer', targetId);
+          }
+        }
+
         function updatePlayerListUI(playersData) {
           const countSpan = document.getElementById('player-count');
           const contentDiv = document.getElementById('player-list-content');
 
-          const playerArray = Object.values(playersData);
-          countSpan.innerText = playerArray.length;
+          const entries = Object.entries(playersData);
+          countSpan.innerText = entries.length;
 
           contentDiv.innerHTML = '';
-          playerArray.forEach(p => {
+          entries.forEach(([id, p]) => {
             const item = document.createElement('div');
             item.className = \`player-item \${p.team}\`;
-            item.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
+            
+            let nameSpan = document.createElement('span');
+            nameSpan.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
+            item.appendChild(nameSpan);
+
+            // 본인 닉네임이 '박준우'이고 타겟이 타인인 경우 강퇴 버튼 노출
+            if (myUsername === '박준우' && id !== socket.id) {
+              let kickBtn = document.createElement('button');
+              kickBtn.className = 'kick-btn';
+              kickBtn.innerText = '강퇴';
+              kickBtn.onclick = () => kickPlayer(id, p.username);
+              item.appendChild(kickBtn);
+            }
+
             contentDiv.appendChild(item);
           });
         }
@@ -265,7 +292,6 @@ app.get('/', (req, res) => {
           initGame(myUsername);
         }
 
-        // Enter 키로도 게스트 로그인 가능
         document.getElementById('username').addEventListener('keydown', (e) => {
           if (e.key === 'Enter') handleGuestLogin();
         });
@@ -383,6 +409,12 @@ app.get('/', (req, res) => {
             appendChatMessage(data.username, data.text, data.team, data.isSystem, data.targetMode);
           });
 
+          // 강퇴 통보 수신 시 처리
+          socket.on('kicked', (reason) => {
+            alert(reason || '방장에 의해 강제 퇴장되었습니다.');
+            window.location.reload();
+          });
+
           function renderLoop() {
             drawGame();
             drawMinimap();
@@ -476,7 +508,6 @@ app.get('/', (req, res) => {
   `);
 });
 
-// 소켓 커넥션 시 닉네임 유효성 확인
 io.use((socket, next) => {
   const username = socket.handshake.auth.username;
   if (!username) return next(new Error('닉네임이 올바르지 않습니다.'));
@@ -513,6 +544,17 @@ io.on('connection', (socket) => {
     if (players[socket.id]) {
       players[socket.id].dirX = dir.x;
       players[socket.id].dirY = dir.y;
+    }
+  });
+
+  // 강퇴 요청 처리 (서버 권한 재검증 포함)
+  socket.on('kickPlayer', (targetSocketId) => {
+    if (socket.username === '박준우') {
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (targetSocket) {
+        targetSocket.emit('kicked', '방장에 의해 강제 퇴장당했습니다.');
+        targetSocket.disconnect(true);
+      }
     }
   });
 
