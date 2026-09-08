@@ -447,14 +447,23 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              if (cp.dirX < 0) {
-                cp.renderAngle = -140 * (Math.PI / 180);
+              // 방향에 따라 즉시 바라보는 각도 설정 (8방향 처리)
+              if (cp.dirX < 0 && cp.dirY < 0) {
+                cp.renderAngle = -140 * (Math.PI / 180); // 왼쪽 위
+              } else if (cp.dirX > 0 && cp.dirY < 0) {
+                cp.renderAngle = -40 * (Math.PI / 180);  // 오른쪽 위
+              } else if (cp.dirX < 0 && cp.dirY > 0) {
+                cp.renderAngle = 140 * (Math.PI / 180);  // 왼쪽 아래
+              } else if (cp.dirX > 0 && cp.dirY > 0) {
+                cp.renderAngle = 40 * (Math.PI / 180);   // 오른쪽 아래
+              } else if (cp.dirX < 0) {
+                cp.renderAngle = -140 * (Math.PI / 180); // 왼쪽
               } else if (cp.dirX > 0) {
-                cp.renderAngle = -40 * (Math.PI / 180);
+                cp.renderAngle = -40 * (Math.PI / 180);  // 오른쪽
               } else if (cp.dirY < 0) {
-                cp.renderAngle = -90 * (Math.PI / 180);
+                cp.renderAngle = -90 * (Math.PI / 180);  // 위쪽
               } else if (cp.dirY > 0) {
-                cp.renderAngle = 90 * (Math.PI / 180);
+                cp.renderAngle = 90 * (Math.PI / 180);   // 아래쪽
               }
 
               if (cp.dirX !== 0 || cp.dirY !== 0) {
@@ -488,8 +497,9 @@ app.get('/', (req, res) => {
             ctx.save();
             ctx.rotate(swingAngle);
 
+            // 노란색 평타 잔상 효과
             if (p.isAttacking) {
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+              ctx.fillStyle = 'rgba(255, 226, 104, 0.45)';
               ctx.beginPath();
               ctx.moveTo(0, 0);
               ctx.arc(0, 0, 16, -0.5, 0.5);
@@ -645,7 +655,7 @@ io.on('connection', (socket) => {
     team: team,
     isAttacking: false,
     attackProgress: 0,
-    lastAttackTime: 0 // 공격 쿨타임용 시각 기록
+    lastAttackTime: 0
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
@@ -666,7 +676,6 @@ io.on('connection', (socket) => {
   socket.on('attack', () => {
     const p = players[socket.id];
     const now = Date.now();
-    // 쿨타임 1000ms(1초) 체크
     if (p && !p.isAttacking && (now - p.lastAttackTime >= 1000)) {
       p.isAttacking = true;
       p.attackProgress = 0;
@@ -735,7 +744,6 @@ setInterval(() => {
     const p = players[id];
 
     if (p.isAttacking) {
-      // 휘두르는 애니메이션 진행 속도를 적절하게 조절
       p.attackProgress += 0.05;
       if (p.attackProgress >= 1) {
         p.isAttacking = false;
