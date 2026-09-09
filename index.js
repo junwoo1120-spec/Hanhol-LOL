@@ -748,187 +748,340 @@ app.get('/', (req, res) => {
             ctx.arc(11, 0, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            ctx.fillStyle = '#A0A0A0';
-            ctx.beginPath();
-            ctx.moveTo(13, -2.5);
-            ctx.lineTo(26, -2.5);
-            ctx.lineTo(31, 0);
-            ctx.lineTo(26, 2.5);
-            ctx.lineTo(13, 2.5);
-            ctx.fill();
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 
-            ctx.restore();
-            ctx.restore();
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*' }
+});
+
+const MAP_SIZE = 2000;
+const players = {};
+
+// 팀 밸런스 조정
+function getBalancedTeam() {
+  let blueCount = 0;
+  let redCount = 0;
+  for (let id in players) {
+    if (players[id].team === 'blue') blueCount++;
+    if (players[id].team === 'red') redCount++;
+  }
+  return blueCount <= redCount ? 'blue' : 'red';
+}
+
+// 장애물 충돌 검사
+function isColliding(x, y) {
+  // 간단한 지도 외곽 boundary 체크 외 obstacle이 필요할 경우 구현
+  return false;
+}
+
+// 우물 영역 체크 (팀별 우물 좌표 기준 반경 150 안)
+function isInFountain(player) {
+  const fountainX = player.team === 'blue' ? 100 : 1900;
+  const fountainY = player.team === 'blue' ? 1900 : 100;
+  const dx = player.x - fountainX;
+  const dy = player.y - fountainY;
+  return Math.sqrt(dx * dx + dy * dy) <= 150;
+}
+
+// 귀환 취소 공통 함수
+function cancelRecall(player) {
+  if (player.isRecalling) {
+    player.isRecalling = false;
+    player.recallStartTime = 0;
+  }
+}
+
+app.get('/', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+      <meta charset="UTF-8">
+      <title>Mini LoL - Garen Arena</title>
+      <style>
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; user-select: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #hud { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; background: rgba(0,0,0,0.8); border: 2px solid #555; padding: 10px; border-radius: 8px; color: white; gap: 15px; }
+        .skill-box { position: relative; width: 48px; height: 48px; border: 2px solid #aaa; border-radius: 6px; overflow: hidden; background: #222; }
+        .skill-box canvas { width: 100%; height: 100%; }
+        .cooldown-overlay { position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7); display: none; justify-content: center; align-items: center; font-weight: bold; font-size: 18px; color: #fff; }
+        #minimap-container { position: absolute; bottom: 20px; right: 20px; width: 180px; height: 180px; border: 2px solid #555; background: #000; }
+        #chat-box { position: absolute; bottom: 20px; left: 20px; width: 300px; height: 200px; background: rgba(0,0,0,0.6); border: 1px solid #444; border-radius: 6px; display: flex; flex-direction: column; }
+        #chat-messages { flex: 1; overflow-y: auto; padding: 8px; font-size: 13px; color: #fff; word-break: break-all; }
+        #chat-input { background: rgba(0,0,0,0.8); border: none; border-top: 1px solid #444; color: #fff; padding: 8px; outline: none; }
+      </style>
+      <script src="/socket.io/socket.io.js"></script>
+    </head>
+    <body>
+      <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="hud">
+          <canvas id="portrait" width="48" height="48"></canvas>
+          <div class="skill-box"><canvas id="icon-q"></canvas><div id="cd-q" class="cooldown-overlay"></div></div>
+          <div class="skill-box"><canvas id="icon-w"></canvas><div id="cd-w" class="cooldown-overlay"></div></div>
+          <div class="skill-box"><canvas id="icon-e"></canvas><div id="cd-e" class="cooldown-overlay"></div></div>
+          <div class="skill-box"><canvas id="icon-r"></canvas><div id="cd-r" class="cooldown-overlay"></div></div>
+        </div>
+        <div id="minimap-container"><canvas id="minimap" width="180" height="180"></canvas></div>
+        <div id="chat-box">
+          <div id="chat-messages"></div>
+          <input type="text" id="chat-input" placeholder="엔터키로 채팅 (Team: /t)" />
+        </div>
+      </div>
+
+      <script>
+        const username = prompt('닉네임을 입력하세요:', '플레이어' + Math.floor(Math.random() * 1000)) || '무명';
+        const socket = io({ auth: { username } });
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const portraitCtx = document.getElementById('portrait').getContext('2d');
+        const miniCanvas = document.getElementById('minimap');
+        const miniCtx = miniCanvas.getContext('2d');
+
+        const MAP_SIZE = 2000;
+        let dpr = window.devicePixelRatio || 1;
+        let clientPlayers = {};
+        let camX = 1000, camY = 1000;
+
+        const mapImage = new Image();
+        mapImage.src = 'https://via.placeholder.com/2000/102510/ffffff?text=LoL+Map';
+
+        function resizeCanvas() {
+          dpr = window.devicePixelRatio || 1;
+          canvas.width = window.innerWidth * dpr;
+          canvas.height = window.innerHeight * dpr;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const keys = { KeyW: false, KeyA: false, KeyS: false, KeyD: false };
+        function sendMove() {
+          let x = 0, y = 0;
+          if (keys.KeyW) y -= 1;
+          if (keys.KeyS) y += 1;
+          if (keys.KeyA) x -= 1;
+          if (keys.KeyD) x += 1;
+          socket.emit('keyMove', { x, y });
+        }
+
+        window.addEventListener('keydown', (e) => {
+          if (document.activeElement === document.getElementById('chat-input')) return;
+          if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+            keys[e.code] = true; sendMove();
+          }
+          if (e.code === 'KeyQ') socket.emit('useQ');
+          if (e.code === 'KeyW' && !keys.KeyW) socket.emit('useW');
+          if (e.code === 'KeyE') socket.emit('useE');
+          if (e.code === 'KeyB') socket.emit('useB'); // B키 귀환
+          if (e.code === 'Space') socket.emit('attack');
+        });
+
+        window.addEventListener('keyup', (e) => {
+          if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+            keys[e.code] = false; sendMove();
+          }
+        });
+
+        const chatInput = document.getElementById('chat-input');
+        chatInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            let msg = chatInput.value.trim();
+            if (msg) {
+              let mode = 'all';
+              if (msg.startsWith('/t ')) {
+                mode = 'team';
+                msg = msg.replace('/t ', '');
+              }
+              socket.emit('chatMessage', { text: msg, targetMode: mode });
+              chatInput.value = '';
+            }
+          }
+        });
+
+        socket.on('chatMessage', (data) => {
+          const messages = document.getElementById('chat-messages');
+          const el = document.createElement('div');
+          if (data.isSystem) el.style.color = '#eab308';
+          else if (data.targetMode === 'team') el.style.color = '#38bdf8';
+          else el.style.color = '#ffffff';
+          el.innerText = \`[\${data.username}]: \${data.text}\`;
+          messages.appendChild(el);
+          messages.scrollTop = messages.scrollHeight;
+        });
+
+        socket.on('gameState', (data) => {
+          clientPlayers = data.players;
+          for (let id in clientPlayers) {
+            const p = clientPlayers[id];
+            p.renderX = p.x;
+            p.renderY = p.y;
+            p.renderAngle = Math.atan2(p.dirY, p.dirX) || 0;
+          }
+          drawGame();
+          drawHUD();
+          drawMinimap();
+        });
+
+        function drawGarenPortrait(c) {
+          c.fillStyle = '#1e293b'; c.fillRect(0,0,48,48);
+          c.fillStyle = '#3b82f6'; c.beginPath(); c.arc(24,20,12,0,Math.PI*2); c.fill();
+        }
+
+        function drawSimpleGaren(c, p) {
+          c.fillStyle = p.team === 'blue' ? '#2563eb' : '#dc2626';
+          c.beginPath(); c.arc(0, 0, 8, 0, Math.PI * 2); c.fill();
+        }
+
+        ctx.fillStyle = '#A0A0A0';
+        ctx.beginPath();
+        ctx.moveTo(13, -2.5);
+        ctx.lineTo(26, -2.5);
+        ctx.lineTo(31, 0);
+        ctx.lineTo(26, 2.5);
+        ctx.lineTo(13, 2.5);
+        ctx.fill();
+
+        function drawHUD() {
+          const me = clientPlayers[socket.id];
+          if (!me) return;
+          drawGarenPortrait(portraitCtx);
+          const now = Date.now();
+
+          const qCdBox = document.getElementById('cd-q');
+          const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
+          qCdBox.style.display = qRemaining > 0 ? 'flex' : 'none';
+          if (qRemaining > 0) qCdBox.innerText = qRemaining;
+
+          const wCdBox = document.getElementById('cd-w');
+          const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
+          wCdBox.style.display = wRemaining > 0 ? 'flex' : 'none';
+          if (wRemaining > 0) wCdBox.innerText = wRemaining;
+
+          const eCdBox = document.getElementById('cd-e');
+          const eRemaining = Math.max(0, Math.ceil(((me.lastETime + me.eCooldown) - now) / 1000));
+          eCdBox.style.display = eRemaining > 0 ? 'flex' : 'none';
+          if (eRemaining > 0) eCdBox.innerText = eRemaining;
+        }
+
+        function drawGame() {
+          const me = clientPlayers[socket.id];
+          ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.save();
+          
+          if (me) {
+            camX += (me.renderX - camX) * 0.2;
+            camY += (me.renderY - camY) * 0.2;
+            const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
+            ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
+            ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
           }
 
-          function drawSkillIcons() {
-            const qCanvas = document.getElementById('icon-q');
-            const qCtx = qCanvas.getContext('2d');
-            qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
-            qCtx.save();
-            qCtx.translate(16, 32);
-            qCtx.rotate(-45 * Math.PI / 180);
-            qCtx.scale(1.8, 1.8);
-            renderSword(qCtx, true);
-            qCtx.restore();
-
-            const wCanvas = document.getElementById('icon-w');
-            const wCtx = wCanvas.getContext('2d');
-            wCtx.fillStyle = '#064e3b'; wCtx.fillRect(0, 0, 48, 48);
-            wCtx.save();
-            wCtx.translate(24, 24);
-            wCtx.shadowColor = '#FFD700'; wCtx.shadowBlur = 10;
-            wCtx.strokeStyle = '#FFD700'; wCtx.lineWidth = 3;
-            wCtx.beginPath(); wCtx.arc(0, 0, 14, 0, Math.PI * 2); wCtx.stroke();
-            wCtx.fillStyle = 'rgba(255, 215, 0, 0.3)'; wCtx.fill();
-            wCtx.restore();
-
-            const eCanvas = document.getElementById('icon-e');
-            const eCtx = eCanvas.getContext('2d');
-            eCtx.fillStyle = '#7f1d1d'; eCtx.fillRect(0, 0, 48, 48);
-            eCtx.strokeStyle = '#fca5a5'; eCtx.lineWidth = 3;
-            eCtx.beginPath(); eCtx.arc(24, 24, 12, 0, Math.PI * 1.5); eCtx.stroke();
-
-            const rCanvas = document.getElementById('icon-r');
-            const rCtx = rCanvas.getContext('2d');
-            rCtx.fillStyle = '#581c87'; rCtx.fillRect(0, 0, 48, 48);
-            rCtx.fillStyle = '#c084fc';
-            rCtx.fillRect(22, 10, 4, 28);
+          if (mapImage.complete && mapImage.naturalWidth !== 0) {
+            ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
           }
 
-          function drawHUD() {
-            const me = clientPlayers[socket.id];
-            if (!me) return;
+          for (let id in clientPlayers) {
+            const p = clientPlayers[id];
+            if (p.isDead) continue;
 
-            drawGarenPortrait(portraitCtx);
-
-            const now = Date.now();
-
-            const qCdBox = document.getElementById('cd-q');
-            const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
-            qCdBox.style.display = qRemaining > 0 ? 'flex' : 'none';
-            if (qRemaining > 0) qCdBox.innerText = qRemaining;
-
-            const wCdBox = document.getElementById('cd-w');
-            const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
-            wCdBox.style.display = wRemaining > 0 ? 'flex' : 'none';
-            if (wRemaining > 0) wCdBox.innerText = wRemaining;
-
-            const eCdBox = document.getElementById('cd-e');
-            const eRemaining = Math.max(0, Math.ceil(((me.lastETime + me.eCooldown) - now) / 1000));
-            eCdBox.style.display = eRemaining > 0 ? 'flex' : 'none';
-            if (eRemaining > 0) eCdBox.innerText = eRemaining;
-          }
-
-          function drawGame() {
-            const me = clientPlayers[socket.id];
-            ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.save();
-            
-            if (me) {
-              camX += (me.renderX - camX) * 0.2;
-              camY += (me.renderY - camY) * 0.2;
-              const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
-              ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
-              ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
-            }
+            ctx.translate(p.renderX, p.renderY);
+            ctx.scale(1.3, 1.3);
+            if (!p.isEActive) ctx.rotate(p.renderAngle);
 
-            if (mapImage.complete && mapImage.naturalWidth !== 0) {
-              ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
-            }
-
-            for (let id in clientPlayers) {
-              const p = clientPlayers[id];
-              if (p.isDead) continue;
-
-              ctx.save();
-              ctx.translate(p.renderX, p.renderY);
-              
-              ctx.scale(1.3, 1.3);
-              if (!p.isEActive) ctx.rotate(p.renderAngle);
-
-              drawSimpleGaren(ctx, p);
-
-              ctx.restore();
-
-              const barWidth = 14;
-              const barHeight = 2;
-              const barX = p.renderX - barWidth / 2;
-              const barY = p.renderY - 10;
-              const hpRatio = Math.max(0, p.hp / p.maxHp);
-              const shieldRatio = Math.min(1, p.shield / p.maxHp);
-
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-              ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
-
-              ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
-              ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
-
-              if (p.shield > 0) {
-                ctx.fillStyle = '#FFFFCC';
-                const hpWidth = barWidth * hpRatio;
-                ctx.fillRect(barX + hpWidth, barY, Math.min(barWidth - hpWidth, barWidth * shieldRatio), barHeight);
-              }
-
-              // 방깎 이펙트 표시
-              if (p.isArmorDebuffed) {
-                ctx.fillStyle = '#A855F7';
-                ctx.font = 'bold 3px sans-serif';
-                ctx.fillText('🛡️-25%', p.renderX, p.renderY + 8);
-              }
-
-              ctx.font = 'bold 4.5px sans-serif';
-              ctx.textAlign = 'center';
-              ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
-              
-              ctx.strokeStyle = '#000000';
-              ctx.lineWidth = 0.8;
-              ctx.strokeText(p.username, p.renderX, p.renderY - 13);
-              ctx.fillText(p.username, p.renderX, p.renderY - 13);
-            }
+            drawSimpleGaren(ctx, p);
             ctx.restore();
+
+            const barWidth = 14;
+            const barHeight = 2;
+            const barX = p.renderX - barWidth / 2;
+            const barY = p.renderY - 10;
+            const hpRatio = Math.max(0, p.hp / p.maxHp);
+            const shieldRatio = Math.min(1, p.shield / p.maxHp);
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
+
+            ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
+            ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+
+            if (p.shield > 0) {
+              ctx.fillStyle = '#FFFFCC';
+              const hpWidth = barWidth * hpRatio;
+              ctx.fillRect(barX + hpWidth, barY, Math.min(barWidth - hpWidth, barWidth * shieldRatio), barHeight);
+            }
+
+            if (p.isArmorDebuffed) {
+              ctx.fillStyle = '#A855F7';
+              ctx.font = 'bold 3px sans-serif';
+              ctx.fillText('🛡️-25%', p.renderX, p.renderY + 8);
+            }
+
+            // 귀환 텍스트 연출
+            if (p.isRecalling) {
+              const recallLeft = Math.max(0, ((p.recallStartTime + 8000 - Date.now()) / 1000)).toFixed(1);
+              ctx.fillStyle = '#38bdf8';
+              ctx.font = 'bold 3.5px sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText(\`귀환 중... (\${recallLeft}s)\`, p.renderX, p.renderY - 18);
+            }
+
+            ctx.font = 'bold 4.5px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
+            
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 0.8;
+            ctx.strokeText(p.username, p.renderX, p.renderY - 13);
+            ctx.fillText(p.username, p.renderX, p.renderY - 13);
+          }
+          ctx.restore();
+        }
+
+        function drawMinimap() {
+          const scale = 180 / MAP_SIZE;
+          miniCtx.fillStyle = '#111';
+          miniCtx.fillRect(0, 0, 180, 180);
+
+          if (mapImage.complete && mapImage.naturalWidth !== 0) {
+            miniCtx.drawImage(mapImage, 0, 0, 180, 180);
           }
 
-          function drawMinimap() {
-            const scale = 180 / MAP_SIZE;
-            miniCtx.fillStyle = '#111';
-            miniCtx.fillRect(0, 0, 180, 180);
+          const me = clientPlayers[socket.id];
 
-            if (mapImage.complete && mapImage.naturalWidth !== 0) {
-              miniCtx.drawImage(mapImage, 0, 0, 180, 180);
-            }
+          for (let id in clientPlayers) {
+            const p = clientPlayers[id];
+            if (p.isDead || (me && p.team !== me.team)) continue;
 
-            const me = clientPlayers[socket.id];
+            const mx = p.renderX * scale;
+            const my = p.renderY * scale;
 
-            for (let id in clientPlayers) {
-              const p = clientPlayers[id];
+            miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
+            miniCtx.beginPath();
+            miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
+            miniCtx.fill();
+            miniCtx.strokeStyle = '#000000';
+            miniCtx.lineWidth = 1;
+            miniCtx.stroke();
+          }
 
-              if (p.isDead || (me && p.team !== me.team)) continue;
+          if (me) {
+            const cssWidth = canvas.width / dpr;
+            const cssHeight = canvas.height / dpr;
+            const viewW = (cssWidth / 4.0) * scale;
+            const viewH = (cssHeight / 4.0) * scale;
+            const viewX = (camX * scale) - (viewW / 2);
+            const viewY = (camY * scale) - (viewH / 2);
 
-              const mx = p.renderX * scale;
-              const my = p.renderY * scale;
-
-              miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
-              miniCtx.beginPath();
-              miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
-              miniCtx.fill();
-              miniCtx.strokeStyle = '#000000';
-              miniCtx.lineWidth = 1;
-              miniCtx.stroke();
-            }
-
-            if (me) {
-              const cssWidth = canvas.width / dpr;
-              const cssHeight = canvas.height / dpr;
-              const viewW = (cssWidth / 4.0) * scale;
-              const viewH = (cssHeight / 4.0) * scale;
-              const viewX = (camX * scale) - (viewW / 2);
-              const viewY = (camY * scale) - (viewH / 2);
-
-              miniCtx.strokeStyle = '#ffffff';
-              miniCtx.lineWidth = 1;
-              miniCtx.strokeRect(viewX, viewY, viewW, viewH);
-            }
+            miniCtx.strokeStyle = '#ffffff';
+            miniCtx.lineWidth = 1;
+            miniCtx.strokeRect(viewX, viewY, viewW, viewH);
           }
         }
       </script>
@@ -946,7 +1099,6 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   const team = getBalancedTeam();
-  
   socket.join(team);
 
   const spawnX = team === 'blue' ? 100 : 1900;
@@ -965,6 +1117,10 @@ io.on('connection', (socket) => {
 
     isDead: false,
     respawnTime: 0,
+
+    // 귀환 관련 정보
+    isRecalling: false,
+    recallStartTime: 0,
 
     hp: 680,
     maxHp: 680,
@@ -1012,15 +1168,28 @@ io.on('connection', (socket) => {
   });
 
   socket.on('keyMove', (dir) => {
-    if (players[socket.id] && !players[socket.id].isDead) {
-      players[socket.id].dirX = dir.x;
-      players[socket.id].dirY = dir.y;
+    const p = players[socket.id];
+    if (p && !p.isDead) {
+      if (dir.x !== 0 || dir.y !== 0) {
+        cancelRecall(p); // 이동 시 귀환 취소
+      }
+      p.dirX = dir.x;
+      p.dirY = dir.y;
     }
+  });
+
+  // B키 귀환 요청
+  socket.on('useB', () => {
+    const p = players[socket.id];
+    if (!p || p.isDead || p.isRecalling) return;
+    p.isRecalling = true;
+    p.recallStartTime = Date.now();
   });
 
   socket.on('useQ', () => {
     const p = players[socket.id];
     if (!p || p.isDead) return;
+    cancelRecall(p);
 
     const now = Date.now();
     if (now - p.lastQTime < p.qCooldown) return;
@@ -1037,6 +1206,7 @@ io.on('connection', (socket) => {
   socket.on('useW', () => {
     const p = players[socket.id];
     if (!p || p.isDead) return;
+    cancelRecall(p);
 
     const now = Date.now();
     if (now - p.lastWTime < p.wCooldown) return;
@@ -1054,6 +1224,7 @@ io.on('connection', (socket) => {
   socket.on('useE', () => {
     const p = players[socket.id];
     if (!p || p.isDead) return;
+    cancelRecall(p);
 
     const now = Date.now();
     if (now - p.lastETime < p.eCooldown) return;
@@ -1068,6 +1239,7 @@ io.on('connection', (socket) => {
     const p = players[socket.id];
     const now = Date.now();
     if (p && !p.isDead && !p.isAttacking && !p.isEActive && (now - p.lastAttackTime >= 1000)) {
+      cancelRecall(p);
       p.isAttacking = true;
       p.attackProgress = 0;
       p.lastAttackTime = now;
@@ -1088,6 +1260,7 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist <= 35) {
+          cancelRecall(target); // 타격받은 대상 귀환 취소
           let totalArmor = target.armor + target.wBonusStats;
           if (target.isArmorDebuffed) totalArmor *= 0.75;
 
@@ -1110,6 +1283,7 @@ io.on('connection', (socket) => {
             
             if (target.hp === 0) {
               target.isDead = true;
+              cancelRecall(target);
               target.respawnTime = Date.now() + 10000;
               target.hasQBuff = false;
               target.hasSpeedBuff = false;
@@ -1208,6 +1382,31 @@ setInterval(() => {
       continue;
     }
 
+    // --- 8초 귀환 처리 ---
+    if (p.isRecalling) {
+      if (now - p.recallStartTime >= 8000) {
+        p.x = p.team === 'blue' ? 100 : 1900;
+        p.y = p.team === 'blue' ? 1900 : 100;
+        p.dirX = 0;
+        p.dirY = 0;
+        p.isRecalling = false;
+        p.recallStartTime = 0;
+      }
+    }
+
+    // --- 우물 내 초당 20% 체력 회복 ---
+    if (isInFountain(p)) {
+      if (p.hp < p.maxHp) {
+        // 초당 20% (60프레임 분할)
+        p.hp = Math.min(p.maxHp, p.hp + (p.maxHp * 0.20 / 60));
+      }
+    } else {
+      // 일반 지속 패시브 회복 (기존 hpRegen)
+      if (p.hp < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
+      }
+    }
+
     if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
       p.isArmorDebuffed = false;
     }
@@ -1236,6 +1435,7 @@ setInterval(() => {
           const closestTargetId = targetsInRange[0].id;
 
           targetsInRange.forEach(({ id: tId, target }) => {
+            cancelRecall(target); // E스킬 피격 시 귀환 취소
             let baseDamage = p.eDamageLevel;
             
             if (tId === closestTargetId) {
@@ -1271,6 +1471,7 @@ setInterval(() => {
 
               if (target.hp === 0) {
                 target.isDead = true;
+                cancelRecall(target);
                 target.respawnTime = Date.now() + 10000;
                 target.isEActive = false;
 
@@ -1289,10 +1490,6 @@ setInterval(() => {
           });
         }
       }
-    }
-
-    if (p.hp < p.maxHp) {
-      p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
     }
 
     if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
