@@ -85,6 +85,17 @@ app.get('/', (req, res) => {
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
         canvas { display: block; width: 100vw; height: 100vh; background: #000; }
         
+        /* 사망시 화면 흑백 처리 클래스 */
+        .dead-screen {
+          filter: grayscale(100%);
+        }
+
+        #respawn-overlay {
+          position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
+          font-size: 28px; font-weight: bold; color: #ff3333; text-shadow: 2px 2px 4px #000;
+          display: none; z-index: 10; pointer-events: none;
+        }
+
         #auth-screen {
           position: absolute; top: 0; left: 0; width: 100%; height: 100%;
           background: rgba(0, 0, 0, 0.85); display: flex; justify-content: center; align-items: center; z-index: 10;
@@ -218,6 +229,8 @@ app.get('/', (req, res) => {
       </style>
     </head>
     <body>
+      <div id="respawn-overlay">부활 대기 중... <span id="respawn-timer">10</span>초</div>
+
       <div id="auth-screen">
         <div class="auth-box">
           <h2>게스트 입장</h2>
@@ -416,6 +429,9 @@ app.get('/', (req, res) => {
           const portraitCanvas = document.getElementById('portrait-canvas');
           const portraitCtx = portraitCanvas.getContext('2d');
 
+          const respawnOverlay = document.getElementById('respawn-overlay');
+          const respawnTimer = document.getElementById('respawn-timer');
+
           const MAP_SIZE = 2000;
 
           let dpr = window.devicePixelRatio || 1;
@@ -504,6 +520,8 @@ app.get('/', (req, res) => {
                 clientPlayers[id].hp = sp.hp;
                 clientPlayers[id].maxHp = sp.maxHp;
                 clientPlayers[id].shield = sp.shield;
+                clientPlayers[id].isDead = sp.isDead;
+                clientPlayers[id].respawnTime = sp.respawnTime;
                 clientPlayers[id].lastQTime = sp.lastQTime;
                 clientPlayers[id].qCooldown = sp.qCooldown;
                 clientPlayers[id].lastWTime = sp.lastWTime;
@@ -569,6 +587,18 @@ app.get('/', (req, res) => {
               cp.renderY += (cp.y - cp.renderY) * 0.2;
             }
 
+            // 본인 사망시 화면 흑백 처리 및 타이머 표시
+            const me = clientPlayers[socket.id];
+            if (me && me.isDead) {
+              document.body.classList.add('dead-screen');
+              respawnOverlay.style.display = 'block';
+              const remaining = Math.max(0, Math.ceil((me.respawnTime - Date.now()) / 1000));
+              respawnTimer.innerText = remaining;
+            } else {
+              document.body.classList.remove('dead-screen');
+              respawnOverlay.style.display = 'none';
+            }
+
             drawGame();
             drawMinimap();
             drawHUD();
@@ -576,7 +606,6 @@ app.get('/', (req, res) => {
           }
           requestAnimationFrame(renderLoop);
 
-          // 칼을 그리는 공통 렌더링 함수
           function renderSword(ctx, isQBuff = false) {
             if (isQBuff) {
               ctx.shadowColor = '#FFE200';
@@ -617,7 +646,8 @@ app.get('/', (req, res) => {
           }
 
           function drawSimpleGaren(ctx, p) {
-            // W 오라 이펙트
+            if (p.isDead) return; // 사망 상태에서는 렌더링 제외
+
             if (p.hasShieldPhase || p.hasDamageReducePhase) {
               ctx.save();
               ctx.shadowColor = '#FFD700';
@@ -630,16 +660,13 @@ app.get('/', (req, res) => {
               ctx.restore();
             }
 
-            // 본체
             ctx.fillStyle = '#FFE268';
             ctx.beginPath();
             ctx.arc(0, 0, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 공격 모션: 위에서 아래로 (오른쪽에서 왼쪽으로 내리치기)
             let swingAngle = 0;
             if (p.isAttacking) {
-              // -1.2 rad (위/오른쪽) -> +1.2 rad (아래/왼쪽)
               swingAngle = -1.2 + (p.attackProgress * 2.4);
             }
 
@@ -697,7 +724,6 @@ app.get('/', (req, res) => {
           }
 
           function drawSkillIcons() {
-            // Q 아이콘 (평타 강화 상태의 빛나는 칼 오른쪽 45도 방향)
             const qCanvas = document.getElementById('icon-q');
             const qCtx = qCanvas.getContext('2d');
             qCtx.fillStyle = '#1c1917'; 
@@ -705,14 +731,13 @@ app.get('/', (req, res) => {
             
             qCtx.save();
             qCtx.translate(16, 32);
-            qCtx.rotate(-45 * Math.PI / 180); // 오른쪽 45도 방향
+            qCtx.rotate(-45 * Math.PI / 180);
             qCtx.scale(1.8, 1.8);
             
-            renderSword(qCtx, true); // 강화된 칼 그리기
+            renderSword(qCtx, true);
             
             qCtx.restore();
 
-            // W 아이콘 (용기의 보호막)
             const wCanvas = document.getElementById('icon-w');
             const wCtx = wCanvas.getContext('2d');
             wCtx.fillStyle = '#064e3b'; wCtx.fillRect(0, 0, 48, 48);
@@ -724,14 +749,12 @@ app.get('/', (req, res) => {
             wCtx.fillStyle = 'rgba(255, 215, 0, 0.3)'; wCtx.fill();
             wCtx.restore();
 
-            // E 아이콘
             const eCanvas = document.getElementById('icon-e');
             const eCtx = eCanvas.getContext('2d');
             eCtx.fillStyle = '#7f1d1d'; eCtx.fillRect(0, 0, 48, 48);
             eCtx.strokeStyle = '#fca5a5'; eCtx.lineWidth = 3;
             eCtx.beginPath(); eCtx.arc(24, 24, 12, 0, Math.PI * 1.5); eCtx.stroke();
 
-            // R 아이콘
             const rCanvas = document.getElementById('icon-r');
             const rCtx = rCanvas.getContext('2d');
             rCtx.fillStyle = '#581c87'; rCtx.fillRect(0, 0, 48, 48);
@@ -785,6 +808,7 @@ app.get('/', (req, res) => {
 
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
+              if (p.isDead) continue; // 사망 중이면 맵 상에서 미출력
 
               ctx.save();
               ctx.translate(p.renderX, p.renderY);
@@ -841,7 +865,7 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
 
-              if (me && p.team !== me.team) continue;
+              if (p.isDead || (me && p.team !== me.team)) continue;
 
               const mx = p.renderX * scale;
               const my = p.renderY * scale;
@@ -901,6 +925,9 @@ io.on('connection', (socket) => {
     attackProgress: 0,
     lastAttackTime: 0,
 
+    isDead: false,
+    respawnTime: 0,
+
     hp: 680,
     maxHp: 680,
     shield: 0,
@@ -937,7 +964,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('keyMove', (dir) => {
-    if (players[socket.id]) {
+    if (players[socket.id] && !players[socket.id].isDead) {
       players[socket.id].dirX = dir.x;
       players[socket.id].dirY = dir.y;
     }
@@ -945,7 +972,7 @@ io.on('connection', (socket) => {
 
   socket.on('useQ', () => {
     const p = players[socket.id];
-    if (!p) return;
+    if (!p || p.isDead) return;
 
     const now = Date.now();
     if (now - p.lastQTime < p.qCooldown) return;
@@ -961,7 +988,7 @@ io.on('connection', (socket) => {
 
   socket.on('useW', () => {
     const p = players[socket.id];
-    if (!p) return;
+    if (!p || p.isDead) return;
 
     const now = Date.now();
     if (now - p.lastWTime < p.wCooldown) return;
@@ -979,7 +1006,7 @@ io.on('connection', (socket) => {
   socket.on('attack', () => {
     const p = players[socket.id];
     const now = Date.now();
-    if (p && !p.isAttacking && (now - p.lastAttackTime >= 1000)) {
+    if (p && !p.isDead && !p.isAttacking && (now - p.lastAttackTime >= 1000)) {
       p.isAttacking = true;
       p.attackProgress = 0;
       p.lastAttackTime = now;
@@ -993,7 +1020,7 @@ io.on('connection', (socket) => {
       for (let targetId in players) {
         if (targetId === socket.id) continue;
         const target = players[targetId];
-        if (target.team === p.team) continue;
+        if (target.team === p.team || target.isDead) continue;
 
         const dx = target.x - p.x;
         const dy = target.y - p.y;
@@ -1020,10 +1047,26 @@ io.on('connection', (socket) => {
           if (incomingDamage > 0) {
             target.hp = Math.max(0, target.hp - incomingDamage);
             
+            // 처치 시 사망 처리 및 부활 타이머 등록 (10초)
             if (target.hp === 0) {
+              target.isDead = true;
+              target.respawnTime = Date.now() + 10000;
+              target.hasQBuff = false;
+              target.hasSpeedBuff = false;
+              target.hasShieldPhase = false;
+              target.hasDamageReducePhase = false;
+              target.shield = 0;
+
               if (p.wBonusStats < 30) {
                 p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
               }
+
+              io.emit('chatMessage', {
+                username: '시스템',
+                text: `${p.username}님이 ${target.username}님을 처치했습니다!`,
+                isSystem: true,
+                targetMode: 'all'
+              });
             }
           }
         }
@@ -1091,6 +1134,19 @@ setInterval(() => {
 
   for (let id in players) {
     const p = players[id];
+
+    // 사망 체크 및 부활 처리
+    if (p.isDead) {
+      if (now >= p.respawnTime) {
+        p.isDead = false;
+        p.hp = p.maxHp;
+        p.x = p.team === 'blue' ? 100 : 1900;
+        p.y = p.team === 'blue' ? 1900 : 100;
+        p.dirX = 0;
+        p.dirY = 0;
+      }
+      continue;
+    }
 
     if (p.hp < p.maxHp) {
       p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
