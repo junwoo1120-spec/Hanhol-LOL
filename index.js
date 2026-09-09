@@ -563,7 +563,7 @@ app.get('/', (req, res) => {
             // W 스킬 보호막 효과
             if (p.hasShieldPhase || p.hasDamageReducePhase) {
               ctx.beginPath();
-              ctx.arc(0, 0, 24, 0, Math.PI * 2);
+              ctx.arc(0, 0, 35, 0, Math.PI * 2);
               ctx.fillStyle = 'rgba(255, 215, 0, 0.25)';
               ctx.fill();
               ctx.strokeStyle = '#ffd700';
@@ -574,45 +574,86 @@ app.get('/', (req, res) => {
             // 회전 적용
             ctx.rotate(p.renderAngle);
 
-            // 본체 (원형 기본 디자인 원복)
+            // 1. 노란색 원형 캐릭터 본체
             ctx.beginPath();
-            ctx.arc(0, 0, 16, 0, Math.PI * 2);
-            ctx.fillStyle = p.team === 'blue' ? '#2563eb' : '#dc2626';
+            ctx.arc(-15, 0, 20, 0, Math.PI * 2);
+            ctx.fillStyle = '#fde047'; // 원본 이미지 스타일의 노란색
             ctx.fill();
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = '#f59e0b'; // 가렌 특유의 금빛 갑옷 테두리
-            ctx.stroke();
 
-            // 어깨 갑옷 표현
-            ctx.fillStyle = '#fbbf24';
-            ctx.fillRect(-6, -18, 12, 5);
-            ctx.fillRect(-6, 13, 12, 5);
+            // 2. 검손잡이 (갈색)
+            ctx.fillStyle = '#78350f';
+            ctx.fillRect(0, -3, 12, 6);
 
-            // 검 / E 스킬 휠풍 효과
+            // E 스킬 회전 시 검 전체 회전
             if (p.isEActive) {
               const elapsed = Date.now() - p.eStartTime;
-              const angle = (elapsed / 100) * Math.PI;
-              
+              const spinAngle = (elapsed / 100) * Math.PI;
+
               ctx.save();
-              ctx.rotate(angle);
+              ctx.rotate(spinAngle);
+
+              // E 회전 잔상 이펙트
               ctx.beginPath();
-              ctx.arc(0, 0, 32, 0, Math.PI * 2);
-              ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
-              ctx.lineWidth = 6;
+              ctx.arc(0, 0, 45, 0, Math.PI * 2);
+              ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
+              ctx.lineWidth = 8;
               ctx.stroke();
 
-              ctx.fillStyle = '#eab308';
-              ctx.fillRect(0, -4, 36, 8);
+              drawSword(ctx, p.hasQBuff);
               ctx.restore();
             } else {
-              // 일반 검
-              ctx.fillStyle = p.hasQBuff ? '#facc15' : '#cbd5e1';
-              ctx.fillRect(8, -3, 20, 6);
-              if (p.hasQBuff) {
-                ctx.shadowColor = '#facc15';
-                ctx.shadowBlur = 10;
-              }
+              // 일반 상태 검 그리기
+              drawSword(ctx, p.hasQBuff);
             }
+
+            ctx.restore();
+          }
+
+          function drawSword(ctx, isQBuff) {
+            ctx.save();
+            ctx.translate(10, 0); // 손잡이 위치 보정
+
+            if (isQBuff) {
+              ctx.shadowColor = '#facc15';
+              ctx.shadowBlur = 15;
+            }
+
+            // 3. 칼자루 가드 (금색 톱니 장식)
+            ctx.fillStyle = '#eab308';
+            ctx.beginPath();
+            ctx.arc(8, 0, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 가드 뿔 장식
+            ctx.beginPath();
+            ctx.moveTo(8, -12); ctx.lineTo(12, -6); ctx.lineTo(4, -6); ctx.closePath();
+            ctx.moveTo(8, 12);  ctx.lineTo(12, 6);  ctx.lineTo(4, 6);  ctx.closePath();
+            ctx.moveTo(16, 0);  ctx.lineTo(10, -4); ctx.lineTo(10, 4); ctx.closePath();
+            ctx.fillStyle = '#ca8a04';
+            ctx.fill();
+
+            // 4. 검은색 중앙 테두리
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(10, -2, 28, 4);
+
+            // 5. 검은색 장식 보석
+            ctx.beginPath();
+            ctx.arc(16, 0, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#fef08a';
+            ctx.fill();
+
+            // 6. 검 날 (회색 외곽선 및 끝 날)
+            ctx.fillStyle = '#94a3b8';
+            ctx.beginPath();
+            ctx.moveTo(8, -6);
+            ctx.lineTo(36, -6);
+            ctx.lineTo(46, 0);  // 뾰족한 검 끝 부분
+            ctx.lineTo(36, 6);
+            ctx.lineTo(8, 6);
+            ctx.closePath();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#475569';
+            ctx.stroke();
 
             ctx.restore();
           }
@@ -623,8 +664,7 @@ app.get('/', (req, res) => {
             
             ctx.beginPath();
             ctx.arc(32, 32, 20, 0, Math.PI * 2);
-            ctx.fillStyle = '#2563eb'; ctx.fill();
-            ctx.lineWidth = 3; ctx.strokeStyle = '#fbbf24'; ctx.stroke();
+            ctx.fillStyle = '#fde047'; ctx.fill();
           }
 
           function drawSkillIcons() {
@@ -698,7 +738,7 @@ app.get('/', (req, res) => {
 
               // HP Bar
               const barWidth = 40, barHeight = 6;
-              const barX = p.renderX - barWidth / 2, barY = p.renderY - 30;
+              const barX = p.renderX - barWidth / 2, barY = p.renderY - 35;
               const hpRatio = Math.max(0, p.hp / p.maxHp);
 
               ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
@@ -709,7 +749,7 @@ app.get('/', (req, res) => {
               ctx.font = 'bold 12px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
-              ctx.fillText(p.username, p.renderX, p.renderY - 36);
+              ctx.fillText(p.username, p.renderX, p.renderY - 41);
             }
             ctx.restore();
           }
