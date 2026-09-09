@@ -333,7 +333,7 @@ app.get('/', (req, res) => {
         }
 
         function kickPlayer(targetId, targetName) {
-          if (confirm(`'\${targetName}' 님을 강퇴하시겠습니까?`)) {
+          if (confirm("'" + targetName + "' 님을 강퇴하시겠습니까?")) {
             socket.emit('kickPlayer', targetId);
           }
         }
@@ -348,10 +348,10 @@ app.get('/', (req, res) => {
           contentDiv.innerHTML = '';
           entries.forEach(([id, p]) => {
             const item = document.createElement('div');
-            item.className = `player-item ${p.team}`;
+            item.className = 'player-item ' + p.team;
             
             let nameSpan = document.createElement('span');
-            nameSpan.innerText = `${p.username} (${p.team === 'blue' ? '블루' : '레드'})`;
+            nameSpan.innerText = p.username + ' (' + (p.team === 'blue' ? '블루' : '레드') + ')';
             item.appendChild(nameSpan);
 
             if (myUsername === '박준우' && id !== socket.id) {
@@ -418,11 +418,11 @@ app.get('/', (req, res) => {
           msgDiv.className = 'chat-msg';
 
           if (isSystem) {
-            msgDiv.innerHTML = `<span class="system">${text}</span>`;
+            msgDiv.innerHTML = '<span class="system">' + text + '</span>';
           } else {
             const teamClass = team === 'blue' ? 'blue' : (team === 'red' ? 'red' : '');
             const typeLabel = targetMode === 'team' ? '<span class="type team">팀</span>' : '<span class="type all">전체</span>';
-            msgDiv.innerHTML = `${typeLabel}<span class="sender ${teamClass}">${sender}:</span> ${text}`;
+            msgDiv.innerHTML = typeLabel + '<span class="sender ' + teamClass + '">' + sender + ':</span> ' + text;
           }
 
           msgContainer.appendChild(msgDiv);
@@ -692,7 +692,6 @@ app.get('/', (req, res) => {
           function drawSimpleGaren(ctx, p) {
             if (p.isDead) return;
 
-            // 귀환 이펙트 (파란 이펙트 ring)
             if (p.isRecalling) {
               ctx.save();
               ctx.strokeStyle = '#00e5ff';
@@ -891,7 +890,6 @@ app.get('/', (req, res) => {
               ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
             }
 
-            // 넥서스 체력바 렌더링
             const nexusPositions = [
               { team: 'blue', x: 225, y: 1766 },
               { team: 'red', x: 1786, y: 223 }
@@ -914,7 +912,7 @@ app.get('/', (req, res) => {
                 ctx.font = 'bold 4px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillStyle = '#ffffff';
-                ctx.fillText(`${nexusData.hp} / ${nexusData.maxHp}`, n.x, barY - 2);
+                ctx.fillText(nexusData.hp + ' / ' + nexusData.maxHp, n.x, barY - 2);
               }
             });
 
@@ -1060,7 +1058,6 @@ io.on('connection', (socket) => {
     const player = players[socket.id];
     if (!player || player.isDead) return;
 
-    // 이동 키를 누르면 귀환 취소
     if (dir.x !== 0 || dir.y !== 0) {
       player.isRecalling = false;
     }
@@ -1073,7 +1070,7 @@ io.on('connection', (socket) => {
     const player = players[socket.id];
     if (!player || player.isDead || player.isAttacking || player.isEActive) return;
 
-    player.isRecalling = false; // 공격 시 귀환 취소
+    player.isRecalling = false;
     player.isAttacking = true;
     player.attackProgress = 0;
     player.lastAttackTime = Date.now();
@@ -1085,7 +1082,7 @@ io.on('connection', (socket) => {
     const now = Date.now();
 
     if (now - player.lastQTime >= player.qCooldown) {
-      player.isRecalling = false; // 스킬 사용 시 귀환 취소
+      player.isRecalling = false;
       player.lastQTime = now;
       player.hasQBuff = true;
       player.qBuffEndTime = now + 4500;
@@ -1100,7 +1097,7 @@ io.on('connection', (socket) => {
     const now = Date.now();
 
     if (now - player.lastWTime >= player.wCooldown) {
-      player.isRecalling = false; // 스킬 사용 시 귀환 취소
+      player.isRecalling = false;
       player.lastWTime = now;
       player.hasShieldPhase = true;
       player.shieldPhaseEndTime = now + 2000;
@@ -1118,7 +1115,7 @@ io.on('connection', (socket) => {
     const now = Date.now();
 
     if (now - player.lastETime >= player.eCooldown) {
-      player.isRecalling = false; // 스킬 사용 시 귀환 취소
+      player.isRecalling = false;
       player.lastETime = now;
       player.isEActive = true;
       player.eStartTime = now;
@@ -1126,14 +1123,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 귀환 시작 요청
   socket.on('startRecall', () => {
     const player = players[socket.id];
     if (!player || player.isDead || player.isRecalling) return;
 
     const now = Date.now();
     player.isRecalling = true;
-    player.recallEndTime = now + 8000; // 8초 후 귀환 완료
+    player.recallEndTime = now + 8000;
   });
 
   socket.on('chatMessage', (data) => {
@@ -1186,7 +1182,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// 서버 틱 루프 (60FPS)
 setInterval(() => {
   const now = Date.now();
 
@@ -1205,15 +1200,13 @@ setInterval(() => {
       continue;
     }
 
-    // 귀환 시간 완료 판정
     if (p.isRecalling && now >= p.recallEndTime) {
       p.isRecalling = false;
       p.x = p.team === 'blue' ? 200 : 1800;
       p.y = p.team === 'blue' ? 1800 : 200;
-      p.hp = p.maxHp; // 귀환 시 체력 회복
+      p.hp = p.maxHp;
     }
 
-    // 버프 및 상태 이상 타이머 처리
     if (p.hasQBuff && now > p.qBuffEndTime) p.hasQBuff = false;
     if (p.hasSpeedBuff && now > p.speedBuffEndTime) p.hasSpeedBuff = false;
 
@@ -1225,7 +1218,6 @@ setInterval(() => {
       p.hasDamageReducePhase = false;
     }
 
-    // 이동 로직
     const baseSpeed = p.hasSpeedBuff ? 4.968 : 3.68;
     if (p.dirX !== 0 || p.dirY !== 0) {
       let mx = p.dirX, my = p.dirY;
@@ -1238,7 +1230,6 @@ setInterval(() => {
       if (!isColliding(p.x, nextY)) p.y = Math.max(10, Math.min(MAP_SIZE - 10, nextY));
     }
 
-    // 일반 공격 평타 판정 (피해를 입으면 대상의 귀환 취소)
     if (p.isAttacking) {
       p.attackProgress += 0.12;
       if (p.attackProgress >= 0.5 && p.attackProgress - 0.12 < 0.5) {
@@ -1250,7 +1241,7 @@ setInterval(() => {
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist <= 45) {
-              target.isRecalling = false; // 피격 시 귀환 취소
+              target.isRecalling = false;
               let damage = p.hasQBuff ? 85 : 45;
               
               if (target.hasDamageReducePhase) damage *= 0.7;
@@ -1288,7 +1279,6 @@ setInterval(() => {
       }
     }
 
-    // E 스킬 틱 판정 (3초 동안 7회 타격)
     if (p.isEActive) {
       const elapsed = now - p.eStartTime;
       const currentTick = Math.floor(elapsed / (3000 / 7));
@@ -1304,7 +1294,7 @@ setInterval(() => {
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist <= 55) {
-              target.isRecalling = false; // 피격 시 귀환 취소
+              target.isRecalling = false;
               let damage = 22;
               if (target.hasDamageReducePhase) damage *= 0.7;
 
