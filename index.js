@@ -95,6 +95,12 @@ app.get('/', (req, res) => {
           display: none; z-index: 10; pointer-events: none;
         }
 
+        #recall-overlay {
+          position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
+          font-size: 24px; font-weight: bold; color: #33ccff; text-shadow: 2px 2px 4px #000;
+          display: none; z-index: 10; pointer-events: none;
+        }
+
         #auth-screen {
           position: absolute; top: 0; left: 0; width: 100%; height: 100%;
           background: rgba(0, 0, 0, 0.85); display: flex; justify-content: center; align-items: center; z-index: 10;
@@ -229,6 +235,7 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div id="respawn-overlay">부활 대기 중... <span id="respawn-timer">10</span>초</div>
+      <div id="recall-overlay">귀환 중... <span id="recall-timer">8</span>초</div>
 
       <div id="auth-screen">
         <div class="auth-box">
@@ -432,6 +439,9 @@ app.get('/', (req, res) => {
           const respawnOverlay = document.getElementById('respawn-overlay');
           const respawnTimer = document.getElementById('respawn-timer');
 
+          const recallOverlay = document.getElementById('recall-overlay');
+          const recallTimer = document.getElementById('recall-timer');
+
           const MAP_SIZE = 2000;
 
           let dpr = window.devicePixelRatio || 1;
@@ -485,6 +495,10 @@ app.get('/', (req, res) => {
             if (e.key === 'e' || e.key === 'E' || e.key === 'ㄷ') {
               e.preventDefault();
               socket.emit('useE');
+            }
+            if (e.key === 'b' || e.key === 'B' || e.key === 'ㅠ') {
+              e.preventDefault();
+              socket.emit('recall');
             }
           });
 
@@ -542,6 +556,9 @@ app.get('/', (req, res) => {
                 clientPlayers[id].isEActive = sp.isEActive;
                 clientPlayers[id].eStartTime = sp.eStartTime;
                 clientPlayers[id].isArmorDebuffed = sp.isArmorDebuffed;
+
+                clientPlayers[id].isRecalling = sp.isRecalling;
+                clientPlayers[id].recallStartTime = sp.recallStartTime;
               }
             }
 
@@ -610,6 +627,14 @@ app.get('/', (req, res) => {
             } else {
               document.body.classList.remove('dead-screen');
               respawnOverlay.style.display = 'none';
+            }
+
+            if (me && me.isRecalling && !me.isDead) {
+              recallOverlay.style.display = 'block';
+              const remaining = Math.max(0, Math.ceil((8000 - (Date.now() - me.recallStartTime)) / 1000));
+              recallTimer.innerText = remaining;
+            } else {
+              recallOverlay.style.display = 'none';
             }
 
             drawGame();
@@ -987,7 +1012,10 @@ io.on('connection', (socket) => {
     isEActive: false,
     eStartTime: 0,
     eHitCount: {},
-    eDamageLevel: 4,
+    eDamageLevel: 3.8,
+
+    isRecalling: false,
+    recallStartTime: 0,
 
     isArmorDebuffed: false,
     armorDebuffEndTime: 0,
@@ -1062,6 +1090,14 @@ io.on('connection', (socket) => {
     p.isEActive = true;
     p.eStartTime = now;
     p.eHitCount = {};
+  });
+
+  socket.on('recall', () => {
+    const p = players[socket.id];
+    if (!p || p.isDead || p.isRecalling) return;
+
+    p.isRecalling = true;
+    p.recallStartTime = Date.now();
   });
 
   socket.on('attack', () => {
@@ -1210,6 +1246,16 @@ setInterval(() => {
 
     if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
       p.isArmorDebuffed = false;
+    }
+
+    if (p.isRecalling) {
+      if (now - p.recallStartTime >= 8000) {
+        p.isRecalling = false;
+        p.x = p.team === 'blue' ? 100 : 1900;
+        p.y = p.team === 'blue' ? 1900 : 100;
+        p.dirX = 0;
+        p.dirY = 0;
+      }
     }
 
     if (p.isEActive) {
