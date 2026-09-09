@@ -85,7 +85,6 @@ app.get('/', (req, res) => {
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
         canvas { display: block; width: 100vw; height: 100vh; background: #000; }
         
-        /* 사망시 화면 흑백 처리 클래스 */
         .dead-screen {
           filter: grayscale(100%);
         }
@@ -288,6 +287,7 @@ app.get('/', (req, res) => {
           <div class="skill-slot" id="slot-e">
             <span class="skill-key">E</span>
             <canvas class="skill-icon-canvas" id="icon-e" width="48" height="48"></canvas>
+            <div class="cooldown-overlay" id="cd-e" style="display:none;">0</div>
           </div>
           <div class="skill-slot" id="slot-r">
             <span class="skill-key">R</span>
@@ -482,6 +482,10 @@ app.get('/', (req, res) => {
               e.preventDefault();
               socket.emit('useW');
             }
+            if (e.key === 'e' || e.key === 'E' || e.key === 'ㄷ') {
+              e.preventDefault();
+              socket.emit('useE');
+            }
           });
 
           window.addEventListener('keyup', (e) => {
@@ -522,14 +526,22 @@ app.get('/', (req, res) => {
                 clientPlayers[id].shield = sp.shield;
                 clientPlayers[id].isDead = sp.isDead;
                 clientPlayers[id].respawnTime = sp.respawnTime;
+                
                 clientPlayers[id].lastQTime = sp.lastQTime;
                 clientPlayers[id].qCooldown = sp.qCooldown;
                 clientPlayers[id].lastWTime = sp.lastWTime;
                 clientPlayers[id].wCooldown = sp.wCooldown;
+                clientPlayers[id].lastETime = sp.lastETime;
+                clientPlayers[id].eCooldown = sp.eCooldown;
+
                 clientPlayers[id].hasQBuff = sp.hasQBuff;
                 clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
                 clientPlayers[id].hasShieldPhase = sp.hasShieldPhase;
                 clientPlayers[id].hasDamageReducePhase = sp.hasDamageReducePhase;
+                
+                clientPlayers[id].isEActive = sp.isEActive;
+                clientPlayers[id].eStartTime = sp.eStartTime;
+                clientPlayers[id].isArmorDebuffed = sp.isArmorDebuffed;
               }
             }
 
@@ -558,22 +570,24 @@ app.get('/', (req, res) => {
               
               const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
 
-              if (cp.dirX < 0 && cp.dirY < 0) {
-                cp.renderAngle = -140 * (Math.PI / 180);
-              } else if (cp.dirX > 0 && cp.dirY < 0) {
-                cp.renderAngle = -40 * (Math.PI / 180);
-              } else if (cp.dirX < 0 && cp.dirY > 0) {
-                cp.renderAngle = 140 * (Math.PI / 180);
-              } else if (cp.dirX > 0 && cp.dirY > 0) {
-                cp.renderAngle = 40 * (Math.PI / 180);
-              } else if (cp.dirX < 0) {
-                cp.renderAngle = -140 * (Math.PI / 180);
-              } else if (cp.dirX > 0) {
-                cp.renderAngle = -40 * (Math.PI / 180);
-              } else if (cp.dirY < 0) {
-                cp.renderAngle = -90 * (Math.PI / 180);
-              } else if (cp.dirY > 0) {
-                cp.renderAngle = 90 * (Math.PI / 180);
+              if (!cp.isEActive) {
+                if (cp.dirX < 0 && cp.dirY < 0) {
+                  cp.renderAngle = -140 * (Math.PI / 180);
+                } else if (cp.dirX > 0 && cp.dirY < 0) {
+                  cp.renderAngle = -40 * (Math.PI / 180);
+                } else if (cp.dirX < 0 && cp.dirY > 0) {
+                  cp.renderAngle = 140 * (Math.PI / 180);
+                } else if (cp.dirX > 0 && cp.dirY > 0) {
+                  cp.renderAngle = 40 * (Math.PI / 180);
+                } else if (cp.dirX < 0) {
+                  cp.renderAngle = -140 * (Math.PI / 180);
+                } else if (cp.dirX > 0) {
+                  cp.renderAngle = -40 * (Math.PI / 180);
+                } else if (cp.dirY < 0) {
+                  cp.renderAngle = -90 * (Math.PI / 180);
+                } else if (cp.dirY > 0) {
+                  cp.renderAngle = 90 * (Math.PI / 180);
+                }
               }
 
               if (cp.dirX !== 0 || cp.dirY !== 0) {
@@ -587,7 +601,6 @@ app.get('/', (req, res) => {
               cp.renderY += (cp.y - cp.renderY) * 0.2;
             }
 
-            // 본인 사망시 화면 흑백 처리 및 타이머 표시
             const me = clientPlayers[socket.id];
             if (me && me.isDead) {
               document.body.classList.add('dead-screen');
@@ -646,7 +659,7 @@ app.get('/', (req, res) => {
           }
 
           function drawSimpleGaren(ctx, p) {
-            if (p.isDead) return; // 사망 상태에서는 렌더링 제외
+            if (p.isDead) return;
 
             if (p.hasShieldPhase || p.hasDamageReducePhase) {
               ctx.save();
@@ -665,25 +678,49 @@ app.get('/', (req, res) => {
             ctx.arc(0, 0, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            let swingAngle = 0;
-            if (p.isAttacking) {
-              swingAngle = -1.2 + (p.attackProgress * 2.4);
-            }
+            if (p.isEActive) {
+              // E스킬 회전 및 황금빛 잔상 효과
+              const elapsed = Date.now() - p.eStartTime;
+              const spins = (elapsed / 3000) * (7 * Math.PI * 2);
+              
+              ctx.save();
+              ctx.rotate(spins);
 
-            ctx.save();
-            ctx.rotate(swingAngle);
-
-            if (p.isAttacking) {
-              ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
+              // 황금빛 잔상 궤적
+              ctx.fillStyle = 'rgba(255, 226, 104, 0.35)';
+              ctx.shadowColor = '#FFE200';
+              ctx.shadowBlur = 12;
               ctx.beginPath();
-              ctx.moveTo(0, 0);
-              ctx.arc(0, 0, 18, -1.2, -1.2 + (p.attackProgress * 2.4));
+              ctx.arc(0, 0, 22, 0, Math.PI * 2);
               ctx.fill();
+
+              // 수평으로 잡은 검
+              ctx.save();
+              ctx.translate(0, 0);
+              renderSword(ctx, true);
+              ctx.restore();
+
+              ctx.restore();
+            } else {
+              let swingAngle = 0;
+              if (p.isAttacking) {
+                swingAngle = -1.2 + (p.attackProgress * 2.4);
+              }
+
+              ctx.save();
+              ctx.rotate(swingAngle);
+
+              if (p.isAttacking) {
+                ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, 18, -1.2, -1.2 + (p.attackProgress * 2.4));
+                ctx.fill();
+              }
+
+              renderSword(ctx, p.hasQBuff);
+              ctx.restore();
             }
-
-            renderSword(ctx, p.hasQBuff);
-
-            ctx.restore();
           }
 
           function drawGarenPortrait(ctx) {
@@ -726,16 +763,12 @@ app.get('/', (req, res) => {
           function drawSkillIcons() {
             const qCanvas = document.getElementById('icon-q');
             const qCtx = qCanvas.getContext('2d');
-            qCtx.fillStyle = '#1c1917'; 
-            qCtx.fillRect(0, 0, 48, 48);
-            
+            qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
             qCtx.save();
             qCtx.translate(16, 32);
             qCtx.rotate(-45 * Math.PI / 180);
             qCtx.scale(1.8, 1.8);
-            
             renderSword(qCtx, true);
-            
             qCtx.restore();
 
             const wCanvas = document.getElementById('icon-w');
@@ -772,21 +805,18 @@ app.get('/', (req, res) => {
 
             const qCdBox = document.getElementById('cd-q');
             const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
-            if (qRemaining > 0) {
-              qCdBox.style.display = 'flex';
-              qCdBox.innerText = qRemaining;
-            } else {
-              qCdBox.style.display = 'none';
-            }
+            qCdBox.style.display = qRemaining > 0 ? 'flex' : 'none';
+            if (qRemaining > 0) qCdBox.innerText = qRemaining;
 
             const wCdBox = document.getElementById('cd-w');
             const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
-            if (wRemaining > 0) {
-              wCdBox.style.display = 'flex';
-              wCdBox.innerText = wRemaining;
-            } else {
-              wCdBox.style.display = 'none';
-            }
+            wCdBox.style.display = wRemaining > 0 ? 'flex' : 'none';
+            if (wRemaining > 0) wCdBox.innerText = wRemaining;
+
+            const eCdBox = document.getElementById('cd-e');
+            const eRemaining = Math.max(0, Math.ceil(((me.lastETime + me.eCooldown) - now) / 1000));
+            eCdBox.style.display = eRemaining > 0 ? 'flex' : 'none';
+            if (eRemaining > 0) eCdBox.innerText = eRemaining;
           }
 
           function drawGame() {
@@ -808,13 +838,13 @@ app.get('/', (req, res) => {
 
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
-              if (p.isDead) continue; // 사망 중이면 맵 상에서 미출력
+              if (p.isDead) continue;
 
               ctx.save();
               ctx.translate(p.renderX, p.renderY);
               
               ctx.scale(1.3, 1.3);
-              ctx.rotate(p.renderAngle);
+              if (!p.isEActive) ctx.rotate(p.renderAngle);
 
               drawSimpleGaren(ctx, p);
 
@@ -837,6 +867,13 @@ app.get('/', (req, res) => {
                 ctx.fillStyle = '#FFFFCC';
                 const hpWidth = barWidth * hpRatio;
                 ctx.fillRect(barX + hpWidth, barY, Math.min(barWidth - hpWidth, barWidth * shieldRatio), barHeight);
+              }
+
+              // 방깎 이펙트 표시
+              if (p.isArmorDebuffed) {
+                ctx.fillStyle = '#A855F7';
+                ctx.font = 'bold 3px sans-serif';
+                ctx.fillText('🛡️-25%', p.renderX, p.renderY + 8);
               }
 
               ctx.font = 'bold 4.5px sans-serif';
@@ -944,6 +981,16 @@ io.on('connection', (socket) => {
     wCooldown: 23000,
     lastWTime: 0,
 
+    eCooldown: 9000,
+    lastETime: 0,
+    isEActive: false,
+    eStartTime: 0,
+    eHitCount: {},
+    eDamageLevel: 4, // 1레벨 기준 틱당 4 데미지
+
+    isArmorDebuffed: false,
+    armorDebuffEndTime: 0,
+
     hasQBuff: false,
     qBuffEndTime: 0,
     hasSpeedBuff: false,
@@ -1003,10 +1050,23 @@ io.on('connection', (socket) => {
     p.damageReducePhaseEndTime = now + 4750;
   });
 
+  socket.on('useE', () => {
+    const p = players[socket.id];
+    if (!p || p.isDead) return;
+
+    const now = Date.now();
+    if (now - p.lastETime < p.eCooldown) return;
+
+    p.lastETime = now;
+    p.isEActive = true;
+    p.eStartTime = now;
+    p.eHitCount = {};
+  });
+
   socket.on('attack', () => {
     const p = players[socket.id];
     const now = Date.now();
-    if (p && !p.isDead && !p.isAttacking && (now - p.lastAttackTime >= 1000)) {
+    if (p && !p.isDead && !p.isAttacking && !p.isEActive && (now - p.lastAttackTime >= 1000)) {
       p.isAttacking = true;
       p.attackProgress = 0;
       p.lastAttackTime = now;
@@ -1027,12 +1087,12 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist <= 35) {
-          const totalArmor = target.armor + target.wBonusStats;
+          let totalArmor = target.armor + target.wBonusStats;
+          if (target.isArmorDebuffed) totalArmor *= 0.75; // 방어력 25% 감소
+
           let incomingDamage = Math.max(1, damage - totalArmor);
 
-          if (target.hasDamageReducePhase) {
-            incomingDamage *= 0.7;
-          }
+          if (target.hasDamageReducePhase) incomingDamage *= 0.7;
 
           if (target.shield > 0) {
             if (target.shield >= incomingDamage) {
@@ -1047,7 +1107,6 @@ io.on('connection', (socket) => {
           if (incomingDamage > 0) {
             target.hp = Math.max(0, target.hp - incomingDamage);
             
-            // 처치 시 사망 처리 및 부활 타이머 등록 (10초)
             if (target.hp === 0) {
               target.isDead = true;
               target.respawnTime = Date.now() + 10000;
@@ -1055,6 +1114,7 @@ io.on('connection', (socket) => {
               target.hasSpeedBuff = false;
               target.hasShieldPhase = false;
               target.hasDamageReducePhase = false;
+              target.isEActive = false;
               target.shield = 0;
 
               if (p.wBonusStats < 30) {
@@ -1135,7 +1195,6 @@ setInterval(() => {
   for (let id in players) {
     const p = players[id];
 
-    // 사망 체크 및 부활 처리
     if (p.isDead) {
       if (now >= p.respawnTime) {
         p.isDead = false;
@@ -1146,6 +1205,96 @@ setInterval(() => {
         p.dirY = 0;
       }
       continue;
+    }
+
+    // 방어력 감소 디버프 지속시간 처리
+    if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
+      p.isArmorDebuffed = false;
+    }
+
+    // E 스킬 도는 중 연산 (3초간)
+    if (p.isEActive) {
+      if (now - p.eStartTime >= 3000) {
+        p.isEActive = false;
+      } else {
+        // E스킬 타격 범위 내 적 검색 (범위 radius 40)
+        let targetsInRange = [];
+        for (let tId in players) {
+          if (tId === id) continue;
+          const target = players[tId];
+          if (target.team === p.team || target.isDead) continue;
+
+          const dx = target.x - p.x;
+          const dy = target.y - p.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= 40) {
+            targetsInRange.push({ id: tId, target, dist });
+          }
+        }
+
+        if (targetsInRange.length > 0) {
+          // 거리 순 정렬
+          targetsInRange.sort((a, b) => a.dist - b.dist);
+          const closestTargetId = targetsInRange[0].id;
+
+          targetsInRange.forEach(({ id: tId, target }) => {
+            let baseDamage = p.eDamageLevel; // 틱당 기본 피해 (4/8/12/16/20)
+            
+            // 가장 가까운 대상 25% 추가 피해
+            if (tId === closestTargetId) {
+              baseDamage *= 1.25;
+            }
+
+            let totalArmor = target.armor + target.wBonusStats;
+            if (target.isArmorDebuffed) totalArmor *= 0.75;
+
+            let incomingDamage = Math.max(0.5, baseDamage - (totalArmor * 0.1));
+
+            if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+            if (target.shield > 0) {
+              if (target.shield >= incomingDamage) {
+                target.shield -= incomingDamage;
+                incomingDamage = 0;
+              } else {
+                incomingDamage -= target.shield;
+                target.shield = 0;
+              }
+            }
+
+            if (incomingDamage > 0) {
+              target.hp = Math.max(0, target.hp - incomingDamage);
+              
+              // E스킬 타격 스택 누적
+              p.eHitCount[tId] = (p.eHitCount[tId] || 0) + 1;
+              
+              // 6번 이상 피격 시 6초간 방어력 25% 감소
+              if (p.eHitCount[tId] >= 6) {
+                target.isArmorDebuffed = true;
+                target.armorDebuffEndTime = now + 6000;
+              }
+
+              if (target.hp === 0) {
+                target.isDead = true;
+                target.respawnTime = Date.now() + 10000;
+                target.isEActive = false;
+
+                if (p.wBonusStats < 30) {
+                  p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
+                }
+
+                io.emit('chatMessage', {
+                  username: '시스템',
+                  text: `${p.username}님이 ${target.username}님을 처치했습니다!`,
+                  isSystem: true,
+                  targetMode: 'all'
+                });
+              }
+            }
+          });
+        }
+      }
     }
 
     if (p.hp < p.maxHp) {
