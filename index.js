@@ -1,755 +1,5 @@
 const express = require('express');
 const http = require('http');
-const path = require('path');
-const { Server } = require('socket.io');
-
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
-
-app.use(express.json());
-app.use(express.static(path.join(__dirname)));
-
-const MAP_SIZE = 2000;
-let players = {};
-
-function getBalancedTeam() {
-  let blueCount = 0;
-  let redCount = 0;
-
-  for (let id in players) {
-    if (players[id].team === 'blue') blueCount++;
-    else if (players[id].team === 'red') redCount++;
-  }
-
-  return blueCount <= redCount ? 'blue' : 'red';
-}
-
-const NEXUS_RADIUS = 35;
-const INHIBITOR_RADIUS = 25;
-const TURRET_RADIUS = 22;
-
-const colliders = [
-  // === 블루팀 ===
-  { x: 225, y: 1766, radius: NEXUS_RADIUS },
-  { x: 309, y: 1748, radius: TURRET_RADIUS },
-  { x: 251, y: 1687, radius: TURRET_RADIUS },
-  { x: 175, y: 1513, radius: INHIBITOR_RADIUS },
-  { x: 446, y: 1561, radius: INHIBITOR_RADIUS },
-  { x: 478, y: 1824, radius: INHIBITOR_RADIUS },
-  { x: 175, y: 1417, radius: TURRET_RADIUS },
-  { x: 506, y: 1495, radius: TURRET_RADIUS },
-  { x: 589, y: 1821, radius: TURRET_RADIUS },
-  { x: 222, y: 1096, radius: TURRET_RADIUS },
-  { x: 692, y: 1347, radius: TURRET_RADIUS },
-  { x: 941, y: 1791, radius: TURRET_RADIUS },
-  { x: 149, y: 597,  radius: TURRET_RADIUS },
-  { x: 798, y: 1136, radius: TURRET_RADIUS },
-  { x: 1418, y: 1852, radius: TURRET_RADIUS },
-
-  // === 레드팀 ===
-  { x: 1786, y: 223, radius: NEXUS_RADIUS },
-  { x: 1759, y: 307, radius: TURRET_RADIUS },
-  { x: 1702, y: 242, radius: TURRET_RADIUS },
-  { x: 1519, y: 163, radius: INHIBITOR_RADIUS },
-  { x: 1564, y: 434, radius: INHIBITOR_RADIUS },
-  { x: 1832, y: 479, radius: INHIBITOR_RADIUS },
-  { x: 1416, y: 168, radius: TURRET_RADIUS },
-  { x: 1501, y: 495, radius: TURRET_RADIUS },
-  { x: 1835, y: 579, radius: TURRET_RADIUS },
-  { x: 1077, y: 199, radius: TURRET_RADIUS },
-  { x: 1319, y: 640, radius: TURRET_RADIUS },
-  { x: 1796, y: 893, radius: TURRET_RADIUS },
-  { x: 595,  y: 138, radius: TURRET_RADIUS },
-  { x: 1211, y: 854, radius: TURRET_RADIUS },
-  { x: 1867, y: 1388, radius: TURRET_RADIUS }
-];
-
-function isColliding(x, y, playerRadius = 4.2) {
-  for (let c of colliders) {
-    const dx = x - c.x;
-    const dy = y - c.y;
-    if (Math.sqrt(dx * dx + dy * dy) < c.radius + playerRadius) return true;
-  }
-  return false;
-}
-
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Summoner's Rift Classic - Custom Garen</title>
-      <style>
-        * { box-sizing: border-box; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
-        canvas { display: block; width: 100vw; height: 100vh; background: #000; }
-        
-        .dead-screen {
-          filter: grayscale(100%);
-        }
-
-        #respawn-overlay {
-          position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
-          font-size: 28px; font-weight: bold; color: #ff3333; text-shadow: 2px 2px 4px #000;
-          display: none; z-index: 10; pointer-events: none;
-        }
-
-        #auth-screen {
-          position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-          background: rgba(0, 0, 0, 0.85); display: flex; justify-content: center; align-items: center; z-index: 10;
-        }
-        .auth-box {
-          background: #222; padding: 30px; border-radius: 12px; width: 340px; text-align: center;
-          border: 1px solid #444; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-        }
-        .auth-box h2 { margin-top: 0; }
-        .auth-box input {
-          width: 100%; padding: 10px; margin: 8px 0; border-radius: 6px; border: 1px solid #555; background: #333; color: #fff;
-        }
-        .auth-box button {
-          width: 100%; padding: 10px; margin-top: 12px; border-radius: 6px; border: none; background: #0088ff; color: #fff; font-weight: bold; cursor: pointer;
-        }
-        .auth-box button:hover { background: #0066cc; }
-        .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
-
-        #player-list-container {
-          position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-          background: rgba(0, 0, 0, 0.75); border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 8px; z-index: 5; display: none; flex-direction: column;
-          box-shadow: 0 4px 15px rgba(0,0,0,0.5); backdrop-filter: blur(4px);
-          min-width: 220px; text-align: center; overflow: hidden;
-        }
-        #player-list-header {
-          padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer;
-          user-select: none; background: rgba(255, 255, 255, 0.05); display: flex;
-          justify-content: space-between; align-items: center; gap: 10px;
-        }
-        #player-list-header:hover { background: rgba(255, 255, 255, 0.15); }
-        #player-list-content {
-          display: none; padding: 10px; max-height: 180px; overflow-y: auto;
-          border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 13px;
-        }
-        .player-item {
-          padding: 5px 0; font-weight: bold; display: flex;
-          justify-content: space-between; align-items: center; gap: 8px;
-        }
-        .player-item.blue { color: #00aaff; }
-        .player-item.red { color: #ff4444; }
-        .kick-btn {
-          background: #ff2222; color: #fff; border: none; padding: 2px 6px;
-          border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;
-        }
-        .kick-btn:hover { background: #cc0000; }
-
-        #chat-container {
-          position: absolute; left: 24px; bottom: 24px; width: 320px;
-          background: rgba(0, 0, 0, 0.85); border: 1px solid #444;
-          border-radius: 8px; z-index: 5; display: none; flex-direction: column;
-          box-shadow: 0 5px 18px rgba(0,0,0,0.6); backdrop-filter: blur(4px); overflow: hidden;
-        }
-        #chat-header {
-          padding: 7px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
-          background: rgba(255, 255, 255, 0.08); display: flex;
-          justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        #chat-header:hover { background: rgba(255, 255, 255, 0.18); }
-        #chat-body { display: flex; flex-direction: column; }
-        #chat-messages {
-          height: 160px; padding: 10px; overflow-y: auto; font-size: 13px;
-          display: flex; flex-direction: column; gap: 6px; word-break: break-all;
-        }
-        #chat-messages::-webkit-scrollbar { width: 4px; }
-        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
-        .chat-msg { color: #eee; line-height: 1.3; }
-        .chat-msg .type { font-size: 10px; font-weight: bold; margin-right: 4px; padding: 1px 3px; border-radius: 3px; }
-        .chat-msg .type.all { background: #555; color: #fff; }
-        .chat-msg .type.team { background: #15803d; color: #fff; }
-        .chat-msg .sender { font-weight: bold; }
-        .chat-msg .sender.blue { color: #0088ff; }
-        .chat-msg .sender.red { color: #ff3333; }
-        .chat-msg .system { color: #ffea00; font-style: italic; }
-        
-        #chat-mode-bar {
-          display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4);
-        }
-        .mode-btn {
-          flex: 1; background: transparent; border: none; color: #888; padding: 5px 0; font-size: 11px; font-weight: bold; cursor: pointer;
-        }
-        .mode-btn.active { color: #fff; background: rgba(255, 255, 255, 0.15); }
-        
-        #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
-        #chat-input {
-          flex: 1; background: transparent; border: none; padding: 8px 10px;
-          color: #fff; font-size: 13px; outline: none;
-        }
-        #chat-send-btn {
-          background: #0088ff; border: none; color: #fff; padding: 0 12px;
-          font-size: 12px; font-weight: bold; cursor: pointer;
-        }
-        #chat-send-btn:hover { background: #0066cc; }
-
-        #minimap-container {
-          position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
-          background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
-          border-radius: 6px; z-index: 5; display: none; overflow: hidden;
-          box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-        }
-        #minimap { width: 100%; height: 100%; display: block; }
-
-        #hud-container {
-          position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-          display: none; align-items: flex-end; gap: 10px; z-index: 6;
-          background: rgba(10, 15, 20, 0.85); border: 2px solid #5b4622;
-          padding: 8px 16px; border-radius: 12px; box-shadow: 0 0 15px rgba(0,0,0,0.8);
-        }
-        .portrait-box {
-          position: relative; width: 64px; height: 64px; border-radius: 50%;
-          border: 3px solid #c8aa6e; overflow: hidden; background: #000;
-          display: flex; justify-content: center; align-items: center;
-        }
-        .portrait-box canvas { width: 100%; height: 100%; }
-
-        .skills-container { display: flex; gap: 8px; align-items: center; }
-        .skill-slot {
-          position: relative; width: 48px; height: 48px; background: #1e2328;
-          border: 2px solid #5b4622; border-radius: 6px; display: flex;
-          justify-content: center; align-items: center; font-weight: bold; overflow: hidden;
-        }
-        .skill-key {
-          position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2;
-        }
-        .skill-icon-canvas { width: 100%; height: 100%; display: block; }
-        .cooldown-overlay {
-          position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-          background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center;
-          align-items: center; color: #fff; font-size: 18px; font-weight: bold; z-index: 3;
-        }
-      </style>
-    </head>
-    <body>
-      <div id="respawn-overlay">부활 대기 중... <span id="respawn-timer">10</span>초</div>
-
-      <div id="auth-screen">
-        <div class="auth-box">
-          <h2>게스트 입장</h2>
-          <div class="warning-text">※ 플레이에 사용할 닉네임을 입력해 주세요. (1회성)</div>
-          <input type="text" id="username" placeholder="닉네임 입력 (한글 가능)" maxlength="12" />
-          <button id="auth-btn" onclick="handleGuestLogin()">게임 시작</button>
-        </div>
-      </div>
-
-      <div id="player-list-container">
-        <div id="player-list-header" onclick="togglePlayerList()">
-          <span>👥 접속자 (<span id="player-count">0</span>명)</span>
-          <span id="player-list-icon">∨</span>
-        </div>
-        <div id="player-list-content"></div>
-      </div>
-
-      <div id="chat-container">
-        <div id="chat-header" onclick="toggleChat()">
-          <span>💬 채팅</span>
-          <span id="chat-toggle-icon">∨</span>
-        </div>
-        <div id="chat-body">
-          <div id="chat-messages"></div>
-          <div id="chat-mode-bar">
-            <button class="mode-btn active" id="btn-mode-all" onclick="setChatMode('all')">전체 (Shift+Enter)</button>
-            <button class="mode-btn" id="btn-mode-team" onclick="setChatMode('team')">팀 (Shift+Enter)</button>
-          </div>
-          <div id="chat-input-container">
-            <input type="text" id="chat-input" placeholder="전체 메시지 입력..." maxlength="100" />
-            <button id="chat-send-btn" onclick="sendChatMessage()">전송</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="minimap-container">
-        <canvas id="minimap" width="180" height="180"></canvas>
-      </div>
-
-      <div id="hud-container">
-        <div class="portrait-box">
-          <canvas id="portrait-canvas" width="64" height="64"></canvas>
-        </div>
-        <div class="skills-container">
-          <div class="skill-slot" id="slot-q">
-            <span class="skill-key">Q</span>
-            <canvas class="skill-icon-canvas" id="icon-q" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-q" style="display:none;">0</div>
-          </div>
-          <div class="skill-slot" id="slot-w">
-            <span class="skill-key">W</span>
-            <canvas class="skill-icon-canvas" id="icon-w" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-w" style="display:none;">0</div>
-          </div>
-          <div class="skill-slot" id="slot-e">
-            <span class="skill-key">E</span>
-            <canvas class="skill-icon-canvas" id="icon-e" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-e" style="display:none;">0</div>
-          </div>
-          <div class="skill-slot" id="slot-r">
-            <span class="skill-key">R</span>
-            <canvas class="skill-icon-canvas" id="icon-r" width="48" height="48"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <canvas id="game"></canvas>
-      <script src="/socket.io/socket.io.js"></script>
-      <script>
-        let myUsername = '';
-        let socket = null;
-        let chatTargetMode = 'all';
-        let isPlayerListExpanded = false;
-        let isChatExpanded = true;
-
-        function togglePlayerList() {
-          isPlayerListExpanded = !isPlayerListExpanded;
-          const content = document.getElementById('player-list-content');
-          const icon = document.getElementById('player-list-icon');
-          content.style.display = isPlayerListExpanded ? 'block' : 'none';
-          icon.innerText = isPlayerListExpanded ? '∧' : '∨';
-        }
-
-        function toggleChat() {
-          isChatExpanded = !isChatExpanded;
-          const body = document.getElementById('chat-body');
-          const icon = document.getElementById('chat-toggle-icon');
-          body.style.display = isChatExpanded ? 'flex' : 'none';
-          icon.innerText = isChatExpanded ? '∨' : '∧';
-        }
-
-        function kickPlayer(targetId, targetName) {
-          if (confirm(\`'\${targetName}' 님을 강퇴하시겠습니까?\`)) {
-            socket.emit('kickPlayer', targetId);
-          }
-        }
-
-        function updatePlayerListUI(playersData) {
-          const countSpan = document.getElementById('player-count');
-          const contentDiv = document.getElementById('player-list-content');
-
-          const entries = Object.entries(playersData);
-          countSpan.innerText = entries.length;
-
-          contentDiv.innerHTML = '';
-          entries.forEach(([id, p]) => {
-            const item = document.createElement('div');
-            item.className = \`player-item \${p.team}\`;
-            
-            let nameSpan = document.createElement('span');
-            nameSpan.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
-            item.appendChild(nameSpan);
-
-            if (myUsername === '박준우' && id !== socket.id) {
-              let kickBtn = document.createElement('button');
-              kickBtn.className = 'kick-btn';
-              kickBtn.innerText = '강퇴';
-              kickBtn.onclick = () => kickPlayer(id, p.username);
-              item.appendChild(kickBtn);
-            }
-
-            contentDiv.appendChild(item);
-          });
-        }
-
-        function handleGuestLogin() {
-          const usernameInput = document.getElementById('username');
-          const username = usernameInput.value.trim();
-
-          if (!username) return alert('사용할 닉네임을 입력해주세요.');
-
-          myUsername = username;
-          document.getElementById('auth-screen').style.display = 'none';
-          document.getElementById('player-list-container').style.display = 'flex';
-          document.getElementById('chat-container').style.display = 'flex';
-          document.getElementById('minimap-container').style.display = 'block';
-          document.getElementById('hud-container').style.display = 'flex';
-          
-          initGame(myUsername);
-        }
-
-        document.getElementById('username').addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') handleGuestLogin();
-        });
-
-        function setChatMode(mode) {
-          chatTargetMode = mode;
-          const btnAll = document.getElementById('btn-mode-all');
-          const btnTeam = document.getElementById('btn-mode-team');
-          const chatInput = document.getElementById('chat-input');
-
-          if (mode === 'all') {
-            btnAll.classList.add('active');
-            btnTeam.classList.remove('active');
-            chatInput.placeholder = '전체 메시지 입력...';
-          } else {
-            btnTeam.classList.add('active');
-            btnAll.classList.remove('active');
-            chatInput.placeholder = '팀 메시지 입력...';
-          }
-        }
-
-        function sendChatMessage() {
-          const chatInput = document.getElementById('chat-input');
-          const text = chatInput.value.trim();
-          if (text && socket) {
-            socket.emit('chatMessage', { text, targetMode: chatTargetMode });
-            chatInput.value = '';
-          }
-        }
-
-        function appendChatMessage(sender, text, team = '', isSystem = false, targetMode = 'all') {
-          const msgContainer = document.getElementById('chat-messages');
-          const msgDiv = document.createElement('div');
-          msgDiv.className = 'chat-msg';
-
-          if (isSystem) {
-            msgDiv.innerHTML = \`<span class="system">\${text}</span>\`;
-          } else {
-            const teamClass = team === 'blue' ? 'blue' : (team === 'red' ? 'red' : '');
-            const typeLabel = targetMode === 'team' ? '<span class="type team">팀</span>' : '<span class="type all">전체</span>';
-            msgDiv.innerHTML = \`\${typeLabel}<span class="sender \${teamClass}">\${sender}:</span> \${text}\`;
-          }
-
-          msgContainer.appendChild(msgDiv);
-          msgContainer.scrollTop = msgContainer.scrollHeight;
-        }
-
-        function initGame(username) {
-          socket = io({ auth: { username } });
-          const canvas = document.getElementById('game');
-          const ctx = canvas.getContext('2d');
-
-          const miniCanvas = document.getElementById('minimap');
-          const miniCtx = miniCanvas.getContext('2d');
-
-          const portraitCanvas = document.getElementById('portrait-canvas');
-          const portraitCtx = portraitCanvas.getContext('2d');
-
-          const respawnOverlay = document.getElementById('respawn-overlay');
-          const respawnTimer = document.getElementById('respawn-timer');
-
-          const MAP_SIZE = 2000;
-
-          let dpr = window.devicePixelRatio || 1;
-          function resizeCanvas() {
-            dpr = window.devicePixelRatio || 1;
-            canvas.width = window.innerWidth * dpr;
-            canvas.height = window.innerHeight * dpr;
-          }
-          window.addEventListener('resize', resizeCanvas);
-          resizeCanvas();
-
-          const mapImage = new Image();
-          mapImage.src = 'web.webp';
-
-          let serverPlayers = {};
-          let clientPlayers = {};
-          const keys = {};
-          let camX = 1000, camY = 1000;
-
-          drawSkillIcons();
-
-          const chatInput = document.getElementById('chat-input');
-          chatInput.addEventListener('keydown', (e) => {
-            e.stopPropagation();
-            if (e.key === 'Enter') {
-              if (e.shiftKey) {
-                setChatMode(chatTargetMode === 'all' ? 'team' : 'all');
-              } else {
-                sendChatMessage();
-              }
-            }
-          });
-
-          window.addEventListener('keydown', (e) => {
-            if (document.activeElement === chatInput) return;
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-              e.preventDefault(); keys[e.key] = true; sendMovement();
-            }
-            if (e.code === 'Space') {
-              e.preventDefault();
-              socket.emit('attack');
-            }
-            if (e.key === 'q' || e.key === 'Q' || e.key === 'ㅂ') {
-              e.preventDefault();
-              socket.emit('useQ');
-            }
-            if (e.key === 'w' || e.key === 'W' || e.key === 'ㅈ') {
-              e.preventDefault();
-              socket.emit('useW');
-            }
-            if (e.key === 'e' || e.key === 'E' || e.key === 'ㄷ') {
-              e.preventDefault();
-              socket.emit('useE');
-            }
-          });
-
-          window.addEventListener('keyup', (e) => {
-            if (document.activeElement === chatInput) return;
-            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-              keys[e.key] = false; sendMovement();
-            }
-          });
-
-          function sendMovement() {
-            let dir = { x: 0, y: 0 };
-            if (keys['ArrowUp']) dir.y -= 1;
-            if (keys['ArrowDown']) dir.y += 1;
-            if (keys['ArrowLeft']) dir.x -= 1;
-            if (keys['ArrowRight']) dir.x += 1;
-            socket.emit('keyMove', dir);
-          }
-
-          socket.on('gameState', (data) => { 
-            serverPlayers = data.players; 
-            updatePlayerListUI(serverPlayers);
-
-            for (let id in serverPlayers) {
-              const sp = serverPlayers[id];
-              if (!clientPlayers[id]) {
-                clientPlayers[id] = { ...sp, renderX: sp.x, renderY: sp.y, renderAngle: -40 * (Math.PI / 180) };
-              } else {
-                clientPlayers[id].x = sp.x;
-                clientPlayers[id].y = sp.y;
-                clientPlayers[id].dirX = sp.dirX;
-                clientPlayers[id].dirY = sp.dirY;
-                clientPlayers[id].isAttacking = sp.isAttacking;
-                clientPlayers[id].attackProgress = sp.attackProgress;
-                clientPlayers[id].username = sp.username;
-                clientPlayers[id].team = sp.team;
-                clientPlayers[id].hp = sp.hp;
-                clientPlayers[id].maxHp = sp.maxHp;
-                clientPlayers[id].shield = sp.shield;
-                clientPlayers[id].isDead = sp.isDead;
-                clientPlayers[id].respawnTime = sp.respawnTime;
-                
-                clientPlayers[id].lastQTime = sp.lastQTime;
-                clientPlayers[id].qCooldown = sp.qCooldown;
-                clientPlayers[id].lastWTime = sp.lastWTime;
-                clientPlayers[id].wCooldown = sp.wCooldown;
-                clientPlayers[id].lastETime = sp.lastETime;
-                clientPlayers[id].eCooldown = sp.eCooldown;
-
-                clientPlayers[id].hasQBuff = sp.hasQBuff;
-                clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
-                clientPlayers[id].hasShieldPhase = sp.hasShieldPhase;
-                clientPlayers[id].hasDamageReducePhase = sp.hasDamageReducePhase;
-                
-                clientPlayers[id].isEActive = sp.isEActive;
-                clientPlayers[id].eStartTime = sp.eStartTime;
-                clientPlayers[id].isArmorDebuffed = sp.isArmorDebuffed;
-              }
-            }
-
-            for (let id in clientPlayers) {
-              if (!serverPlayers[id]) delete clientPlayers[id];
-            }
-          });
-
-          socket.on('chatMessage', (data) => {
-            appendChatMessage(data.username, data.text, data.team, data.isSystem, data.targetMode);
-          });
-
-          socket.on('kicked', (reason) => {
-            alert(reason || '방장에 의해 강제 퇴장되었습니다.');
-            window.location.reload();
-          });
-
-          let lastTime = performance.now();
-
-          function renderLoop(currentTime) {
-            const dt = (currentTime - lastTime) / 1000;
-            lastTime = currentTime;
-
-            for (let id in clientPlayers) {
-              const cp = clientPlayers[id];
-              
-              const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
-
-              if (!cp.isEActive) {
-                if (cp.dirX < 0 && cp.dirY < 0) {
-                  cp.renderAngle = -140 * (Math.PI / 180);
-                } else if (cp.dirX > 0 && cp.dirY < 0) {
-                  cp.renderAngle = -40 * (Math.PI / 180);
-                } else if (cp.dirX < 0 && cp.dirY > 0) {
-                  cp.renderAngle = 140 * (Math.PI / 180);
-                } else if (cp.dirX > 0 && cp.dirY > 0) {
-                  cp.renderAngle = 40 * (Math.PI / 180);
-                } else if (cp.dirX < 0) {
-                  cp.renderAngle = -140 * (Math.PI / 180);
-                } else if (cp.dirX > 0) {
-                  cp.renderAngle = -40 * (Math.PI / 180);
-                } else if (cp.dirY < 0) {
-                  cp.renderAngle = -90 * (Math.PI / 180);
-                } else if (cp.dirY > 0) {
-                  cp.renderAngle = 90 * (Math.PI / 180);
-                }
-              }
-
-              if (cp.dirX !== 0 || cp.dirY !== 0) {
-                let mx = cp.dirX, my = cp.dirY;
-                if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
-                cp.renderX += mx * baseSpeed * dt;
-                cp.renderY += my * baseSpeed * dt;
-              }
-
-              cp.renderX += (cp.x - cp.renderX) * 0.2;
-              cp.renderY += (cp.y - cp.renderY) * 0.2;
-            }
-
-            const me = clientPlayers[socket.id];
-            if (me && me.isDead) {
-              document.body.classList.add('dead-screen');
-              respawnOverlay.style.display = 'block';
-              const remaining = Math.max(0, Math.ceil((me.respawnTime - Date.now()) / 1000));
-              respawnTimer.innerText = remaining;
-            } else {
-              document.body.classList.remove('dead-screen');
-              respawnOverlay.style.display = 'none';
-            }
-
-            drawGame();
-            drawMinimap();
-            drawHUD();
-            requestAnimationFrame(renderLoop);
-          }
-          requestAnimationFrame(renderLoop);
-
-          function renderSword(ctx, isQBuff = false) {
-            if (isQBuff) {
-              ctx.shadowColor = '#FFE200';
-              ctx.shadowBlur = 10;
-            }
-
-            ctx.fillStyle = '#653311';
-            ctx.fillRect(3, -0.6, 2.5, 1.2);
-
-            ctx.fillStyle = isQBuff ? '#FFF000' : '#D1AC38';
-            ctx.beginPath();
-            ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.moveTo(6, -2.5); ctx.lineTo(7, 0); ctx.lineTo(6, 2.5); ctx.lineTo(5, 0);
-            ctx.fill();
-
-            ctx.fillStyle = '#1A1A1A';
-            ctx.fillRect(7.2, -1, 7, 2);
-
-            ctx.fillStyle = isQBuff ? '#FFFF88' : '#A0A0A0';
-            ctx.beginPath();
-            ctx.moveTo(7.2, -1.3);
-            ctx.lineTo(13.5, -1.3);
-            ctx.lineTo(16, 0);
-            ctx.lineTo(13.5, 1.3);
-            ctx.lineTo(7.2, 1.3);
-            ctx.fill();
-
-            ctx.fillStyle = '#1A1A1A';
-            ctx.fillRect(8, -0.7, 5.5, 1.4);
-
-            ctx.fillStyle = '#D1AC38';
-            ctx.beginPath();
-            ctx.arc(8.5, 0, 0.5, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          function drawSimpleGaren(ctx, p) {
-            if (p.isDead) return;
-
-            if (p.hasShieldPhase || p.hasDamageReducePhase) {
-              ctx.save();
-              ctx.shadowColor = '#FFD700';
-              ctx.shadowBlur = 15;
-              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
-              ctx.lineWidth = 2.5;
-              ctx.beginPath();
-              ctx.arc(0, 0, 11, 0, Math.PI * 2);
-              ctx.stroke();
-              ctx.restore();
-            }
-
-            ctx.fillStyle = '#FFE268';
-            ctx.beginPath();
-            ctx.arc(0, 0, 5, 0, Math.PI * 2);
-            ctx.fill();
-
-            if (p.isEActive) {
-              // E스킬 회전 연산
-              const elapsed = Date.now() - p.eStartTime;
-              const spins = (elapsed / 3000) * (7 * Math.PI * 2);
-              
-              ctx.save();
-              ctx.rotate(spins);
-
-              // 검 길이에만 맞춰 남아있는 황금빛 궤적/잔상 (호 형태)
-              ctx.save();
-              ctx.shadowColor = '#FFE200';
-              ctx.shadowBlur = 10;
-              ctx.strokeStyle = 'rgba(255, 226, 104, 0.6)';
-              ctx.lineWidth = 4;
-              ctx.beginPath();
-              // 검의 날 부분 시작점(7.2)부터 끝점(16)까지의 범위에 잔상 궤적 형성
-              ctx.arc(0, 0, 12, -0.8, 0.2);
-              ctx.stroke();
-              ctx.restore();
-
-              // 실제 칼 그리기
-              renderSword(ctx, true);
-
-              ctx.restore();
-            } else {
-              let swingAngle = 0;
-              if (p.isAttacking) {
-                swingAngle = -1.2 + (p.attackProgress * 2.4);
-              }
-
-              ctx.save();
-              ctx.rotate(swingAngle);
-
-              if (p.isAttacking) {
-                ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.arc(0, 0, 18, -1.2, -1.2 + (p.attackProgress * 2.4));
-                ctx.fill();
-              }
-
-              renderSword(ctx, p.hasQBuff);
-              ctx.restore();
-            }
-          }
-
-          function drawGarenPortrait(ctx) {
-            ctx.clearRect(0, 0, 64, 64);
-            ctx.fillStyle = '#0a0f14';
-            ctx.fillRect(0, 0, 64, 64);
-
-            ctx.save();
-            ctx.translate(26, 38);
-            
-            ctx.fillStyle = '#FFE268';
-            ctx.beginPath();
-            ctx.arc(0, 0, 10, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.save();
-            ctx.rotate(-60 * (Math.PI / 180));
-
-            ctx.fillStyle = '#653311';
-            ctx.fillRect(6, -1.2, 5, 2.4);
-
-            ctx.fillStyle = '#D1AC38';
-            ctx.beginPath();
-            ctx.arc(11, 0, 3.5, 0, Math.PI * 2);
-            ctx.fill();
-
-const express = require('express');
-const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
@@ -774,7 +24,6 @@ function getBalancedTeam() {
 
 // 장애물 충돌 검사
 function isColliding(x, y) {
-  // 간단한 지도 외곽 boundary 체크 외 obstacle이 필요할 경우 구현
   return false;
 }
 
@@ -878,7 +127,7 @@ app.get('/', (req, res) => {
           if (e.code === 'KeyQ') socket.emit('useQ');
           if (e.code === 'KeyW' && !keys.KeyW) socket.emit('useW');
           if (e.code === 'KeyE') socket.emit('useE');
-          if (e.code === 'KeyB') socket.emit('useB'); // B키 귀환
+          if (e.code === 'KeyB') socket.emit('useB');
           if (e.code === 'Space') socket.emit('attack');
         });
 
@@ -910,7 +159,7 @@ app.get('/', (req, res) => {
           if (data.isSystem) el.style.color = '#eab308';
           else if (data.targetMode === 'team') el.style.color = '#38bdf8';
           else el.style.color = '#ffffff';
-          el.innerText = \`[\${data.username}]: \${data.text}\`;
+          el.innerText = '[' + data.username + ']: ' + data.text;
           messages.appendChild(el);
           messages.scrollTop = messages.scrollHeight;
         });
@@ -937,15 +186,6 @@ app.get('/', (req, res) => {
           c.fillStyle = p.team === 'blue' ? '#2563eb' : '#dc2626';
           c.beginPath(); c.arc(0, 0, 8, 0, Math.PI * 2); c.fill();
         }
-
-        ctx.fillStyle = '#A0A0A0';
-        ctx.beginPath();
-        ctx.moveTo(13, -2.5);
-        ctx.lineTo(26, -2.5);
-        ctx.lineTo(31, 0);
-        ctx.lineTo(26, 2.5);
-        ctx.lineTo(13, 2.5);
-        ctx.fill();
 
         function drawHUD() {
           const me = clientPlayers[socket.id];
@@ -1023,13 +263,12 @@ app.get('/', (req, res) => {
               ctx.fillText('🛡️-25%', p.renderX, p.renderY + 8);
             }
 
-            // 귀환 텍스트 연출
             if (p.isRecalling) {
               const recallLeft = Math.max(0, ((p.recallStartTime + 8000 - Date.now()) / 1000)).toFixed(1);
               ctx.fillStyle = '#38bdf8';
               ctx.font = 'bold 3.5px sans-serif';
               ctx.textAlign = 'center';
-              ctx.fillText(\`귀환 중... (\${recallLeft}s)\`, p.renderX, p.renderY - 18);
+              ctx.fillText('귀환 중... (' + recallLeft + 's)', p.renderX, p.renderY - 18);
             }
 
             ctx.font = 'bold 4.5px sans-serif';
@@ -1118,7 +357,6 @@ io.on('connection', (socket) => {
     isDead: false,
     respawnTime: 0,
 
-    // 귀환 관련 정보
     isRecalling: false,
     recallStartTime: 0,
 
@@ -1171,14 +409,13 @@ io.on('connection', (socket) => {
     const p = players[socket.id];
     if (p && !p.isDead) {
       if (dir.x !== 0 || dir.y !== 0) {
-        cancelRecall(p); // 이동 시 귀환 취소
+        cancelRecall(p);
       }
       p.dirX = dir.x;
       p.dirY = dir.y;
     }
   });
 
-  // B키 귀환 요청
   socket.on('useB', () => {
     const p = players[socket.id];
     if (!p || p.isDead || p.isRecalling) return;
@@ -1260,7 +497,7 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist <= 35) {
-          cancelRecall(target); // 타격받은 대상 귀환 취소
+          cancelRecall(target);
           let totalArmor = target.armor + target.wBonusStats;
           if (target.isArmorDebuffed) totalArmor *= 0.75;
 
@@ -1382,7 +619,6 @@ setInterval(() => {
       continue;
     }
 
-    // --- 8초 귀환 처리 ---
     if (p.isRecalling) {
       if (now - p.recallStartTime >= 8000) {
         p.x = p.team === 'blue' ? 100 : 1900;
@@ -1394,14 +630,11 @@ setInterval(() => {
       }
     }
 
-    // --- 우물 내 초당 20% 체력 회복 ---
     if (isInFountain(p)) {
       if (p.hp < p.maxHp) {
-        // 초당 20% (60프레임 분할)
         p.hp = Math.min(p.maxHp, p.hp + (p.maxHp * 0.20 / 60));
       }
     } else {
-      // 일반 지속 패시브 회복 (기존 hpRegen)
       if (p.hp < p.maxHp) {
         p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
       }
@@ -1435,7 +668,7 @@ setInterval(() => {
           const closestTargetId = targetsInRange[0].id;
 
           targetsInRange.forEach(({ id: tId, target }) => {
-            cancelRecall(target); // E스킬 피격 시 귀환 취소
+            cancelRecall(target);
             let baseDamage = p.eDamageLevel;
             
             if (tId === closestTargetId) {
