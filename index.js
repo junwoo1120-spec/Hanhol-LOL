@@ -12,12 +12,11 @@ app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
-let gameOver = false;
-let winnerTeam = null;
 
+// === 넥서스 객체 추가 (체력 4000) ===
 let nexuses = {
-  blue: { x: 225, y: 1766, hp: 4000, maxHp: 4000, radius: 35 },
-  red: { x: 1786, y: 223, hp: 4000, maxHp: 4000, radius: 35 }
+  blue: { x: 225, y: 1766, radius: 35, hp: 4000, maxHp: 4000 },
+  red: { x: 1786, y: 223, radius: 35, hp: 4000, maxHp: 4000 }
 };
 
 function getBalancedTeam() {
@@ -32,12 +31,13 @@ function getBalancedTeam() {
   return blueCount <= redCount ? 'blue' : 'red';
 }
 
+const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
 const TURRET_RADIUS = 22;
 
 const colliders = [
   // === 블루팀 ===
-  { x: 225, y: 1766, radius: nexuses.blue.radius },
+  { x: 225, y: 1766, radius: NEXUS_RADIUS },
   { x: 309, y: 1748, radius: TURRET_RADIUS },
   { x: 251, y: 1687, radius: TURRET_RADIUS },
   { x: 175, y: 1513, radius: INHIBITOR_RADIUS },
@@ -54,7 +54,7 @@ const colliders = [
   { x: 1418, y: 1852, radius: TURRET_RADIUS },
 
   // === 레드팀 ===
-  { x: 1786, y: 223, radius: nexuses.red.radius },
+  { x: 1786, y: 223, radius: NEXUS_RADIUS },
   { x: 1759, y: 307, radius: TURRET_RADIUS },
   { x: 1702, y: 242, radius: TURRET_RADIUS },
   { x: 1519, y: 163, radius: INHIBITOR_RADIUS },
@@ -71,7 +71,7 @@ const colliders = [
   { x: 1867, y: 1388, radius: TURRET_RADIUS }
 ];
 
-function isColliding(x, y, playerRadius = 15) {
+function isColliding(x, y, playerRadius = 4.2) {
   for (let c of colliders) {
     const dx = x - c.x;
     const dy = y - c.y;
@@ -85,7 +85,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Summoner's Rift Classic - Garen</title>
+      <title>Summoner's Rift Classic - Custom Garen</title>
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
@@ -101,23 +101,9 @@ app.get('/', (req, res) => {
 
         #recall-overlay {
           position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
-          font-size: 24px; font-weight: bold; color: #38bdf8; text-shadow: 2px 2px 4px #000;
-          display: none; z-index: 10; pointer-events: none;
+          font-size: 24px; font-weight: bold; color: #00ccff; text-shadow: 2px 2px 4px #000;
+          display: none; z-index: 10; pointer-events: none; text-align: center;
         }
-
-        #game-over-overlay {
-          position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-          background: rgba(0, 0, 0, 0.85); display: none; flex-direction: column;
-          justify-content: center; align-items: center; z-index: 20;
-        }
-        #game-over-text { font-size: 72px; font-weight: 900; letter-spacing: 4px; margin-bottom: 20px; text-shadow: 0 0 20px rgba(255,255,255,0.5); }
-        .victory { color: #38bdf8; }
-        .defeat { color: #f87171; }
-        #restart-btn {
-          padding: 14px 32px; font-size: 20px; font-weight: bold; background: #c8aa6e;
-          color: #111; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s;
-        }
-        #restart-btn:hover { background: #f0e6d2; transform: scale(1.05); }
 
         #auth-screen {
           position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -160,6 +146,11 @@ app.get('/', (req, res) => {
         }
         .player-item.blue { color: #00aaff; }
         .player-item.red { color: #ff4444; }
+        .kick-btn {
+          background: #ff2222; color: #fff; border: none; padding: 2px 6px;
+          border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;
+        }
+        .kick-btn:hover { background: #cc0000; }
 
         #chat-container {
           position: absolute; left: 24px; bottom: 24px; width: 320px;
@@ -172,11 +163,14 @@ app.get('/', (req, res) => {
           background: rgba(255, 255, 255, 0.08); display: flex;
           justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1);
         }
+        #chat-header:hover { background: rgba(255, 255, 255, 0.18); }
         #chat-body { display: flex; flex-direction: column; }
         #chat-messages {
           height: 160px; padding: 10px; overflow-y: auto; font-size: 13px;
           display: flex; flex-direction: column; gap: 6px; word-break: break-all;
         }
+        #chat-messages::-webkit-scrollbar { width: 4px; }
+        #chat-messages::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
         .chat-msg { color: #eee; line-height: 1.3; }
         .chat-msg .type { font-size: 10px; font-weight: bold; margin-right: 4px; padding: 1px 3px; border-radius: 3px; }
         .chat-msg .type.all { background: #555; color: #fff; }
@@ -186,18 +180,30 @@ app.get('/', (req, res) => {
         .chat-msg .sender.red { color: #ff3333; }
         .chat-msg .system { color: #ffea00; font-style: italic; }
         
-        #chat-mode-bar { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4); }
-        .mode-btn { flex: 1; background: transparent; border: none; color: #888; padding: 5px 0; font-size: 11px; font-weight: bold; cursor: pointer; }
+        #chat-mode-bar {
+          display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); background: rgba(0, 0, 0, 0.4);
+        }
+        .mode-btn {
+          flex: 1; background: transparent; border: none; color: #888; padding: 5px 0; font-size: 11px; font-weight: bold; cursor: pointer;
+        }
         .mode-btn.active { color: #fff; background: rgba(255, 255, 255, 0.15); }
         
         #chat-input-container { display: flex; border-top: 1px solid rgba(255, 255, 255, 0.1); }
-        #chat-input { flex: 1; background: transparent; border: none; padding: 8px 10px; color: #fff; font-size: 13px; outline: none; }
-        #chat-send-btn { background: #0088ff; border: none; color: #fff; padding: 0 12px; font-size: 12px; font-weight: bold; cursor: pointer; }
+        #chat-input {
+          flex: 1; background: transparent; border: none; padding: 8px 10px;
+          color: #fff; font-size: 13px; outline: none;
+        }
+        #chat-send-btn {
+          background: #0088ff; border: none; color: #fff; padding: 0 12px;
+          font-size: 12px; font-weight: bold; cursor: pointer;
+        }
+        #chat-send-btn:hover { background: #0066cc; }
 
         #minimap-container {
           position: absolute; right: 15px; bottom: 15px; width: 180px; height: 180px;
           background: rgba(0, 0, 0, 0.85); border: 2px solid rgba(255, 255, 255, 0.4);
           border-radius: 6px; z-index: 5; display: none; overflow: hidden;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.6);
         }
         #minimap { width: 100%; height: 100%; display: block; }
 
@@ -210,6 +216,7 @@ app.get('/', (req, res) => {
         .portrait-box {
           position: relative; width: 64px; height: 64px; border-radius: 50%;
           border: 3px solid #c8aa6e; overflow: hidden; background: #000;
+          display: flex; justify-content: center; align-items: center;
         }
         .portrait-box canvas { width: 100%; height: 100%; }
 
@@ -219,7 +226,9 @@ app.get('/', (req, res) => {
           border: 2px solid #5b4622; border-radius: 6px; display: flex;
           justify-content: center; align-items: center; font-weight: bold; overflow: hidden;
         }
-        .skill-key { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2; }
+        .skill-key {
+          position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2;
+        }
         .skill-icon-canvas { width: 100%; height: 100%; display: block; }
         .cooldown-overlay {
           position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -230,12 +239,7 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div id="respawn-overlay">부활 대기 중... <span id="respawn-timer">10</span>초</div>
-      <div id="recall-overlay">귀환 중... <span id="recall-timer">8</span>초</div>
-
-      <div id="game-over-overlay">
-        <div id="game-over-text">VICTORY</div>
-        <button id="restart-btn" onclick="restartGame()">다시 플레이 하기</button>
-      </div>
+      <div id="recall-overlay">귀환 중... <span id="recall-timer">8.0</span>초</div>
 
       <div id="auth-screen">
         <div class="auth-box">
@@ -314,43 +318,67 @@ app.get('/', (req, res) => {
 
         function togglePlayerList() {
           isPlayerListExpanded = !isPlayerListExpanded;
-          document.getElementById('player-list-content').style.display = isPlayerListExpanded ? 'block' : 'none';
-          document.getElementById('player-list-icon').innerText = isPlayerListExpanded ? '∧' : '∨';
+          const content = document.getElementById('player-list-content');
+          const icon = document.getElementById('player-list-icon');
+          content.style.display = isPlayerListExpanded ? 'block' : 'none';
+          icon.innerText = isPlayerListExpanded ? '∧' : '∨';
         }
 
         function toggleChat() {
           isChatExpanded = !isChatExpanded;
-          document.getElementById('chat-body').style.display = isChatExpanded ? 'flex' : 'none';
-          document.getElementById('chat-toggle-icon').innerText = isChatExpanded ? '∨' : '∧';
+          const body = document.getElementById('chat-body');
+          const icon = document.getElementById('chat-toggle-icon');
+          body.style.display = isChatExpanded ? 'flex' : 'none';
+          icon.innerText = isChatExpanded ? '∨' : '∧';
         }
 
-        function restartGame() {
-          if (socket) socket.emit('requestRestart');
+        function kickPlayer(targetId, targetName) {
+          if (confirm(`'\${targetName}' 님을 강퇴하시겠습니까?`)) {
+            socket.emit('kickPlayer', targetId);
+          }
         }
 
         function updatePlayerListUI(playersData) {
           const countSpan = document.getElementById('player-count');
           const contentDiv = document.getElementById('player-list-content');
+
           const entries = Object.entries(playersData);
           countSpan.innerText = entries.length;
+
           contentDiv.innerHTML = '';
           entries.forEach(([id, p]) => {
             const item = document.createElement('div');
-            item.className = \`player-item \${p.team}\`;
-            item.innerHTML = \`<span>\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
+            item.className = `player-item ${p.team}`;
+            
+            let nameSpan = document.createElement('span');
+            nameSpan.innerText = `${p.username} (${p.team === 'blue' ? '블루' : '레드'})`;
+            item.appendChild(nameSpan);
+
+            if (myUsername === '박준우' && id !== socket.id) {
+              let kickBtn = document.createElement('button');
+              kickBtn.className = 'kick-btn';
+              kickBtn.innerText = '강퇴';
+              kickBtn.onclick = () => kickPlayer(id, p.username);
+              item.appendChild(kickBtn);
+            }
+
             contentDiv.appendChild(item);
           });
         }
 
         function handleGuestLogin() {
-          const username = document.getElementById('username').value.trim();
+          const usernameInput = document.getElementById('username');
+          const username = usernameInput.value.trim();
+
           if (!username) return alert('사용할 닉네임을 입력해주세요.');
+
           myUsername = username;
           document.getElementById('auth-screen').style.display = 'none';
           document.getElementById('player-list-container').style.display = 'flex';
           document.getElementById('chat-container').style.display = 'flex';
           document.getElementById('minimap-container').style.display = 'block';
           document.getElementById('hud-container').style.display = 'flex';
+          
           initGame(myUsername);
         }
 
@@ -360,9 +388,19 @@ app.get('/', (req, res) => {
 
         function setChatMode(mode) {
           chatTargetMode = mode;
-          document.getElementById('btn-mode-all').classList.toggle('active', mode === 'all');
-          document.getElementById('btn-mode-team').classList.toggle('active', mode === 'team');
-          document.getElementById('chat-input').placeholder = mode === 'all' ? '전체 메시지 입력...' : '팀 메시지 입력...';
+          const btnAll = document.getElementById('btn-mode-all');
+          const btnTeam = document.getElementById('btn-mode-team');
+          const chatInput = document.getElementById('chat-input');
+
+          if (mode === 'all') {
+            btnAll.classList.add('active');
+            btnTeam.classList.remove('active');
+            chatInput.placeholder = '전체 메시지 입력...';
+          } else {
+            btnTeam.classList.add('active');
+            btnAll.classList.remove('active');
+            chatInput.placeholder = '팀 메시지 입력...';
+          }
         }
 
         function sendChatMessage() {
@@ -380,11 +418,11 @@ app.get('/', (req, res) => {
           msgDiv.className = 'chat-msg';
 
           if (isSystem) {
-            msgDiv.innerHTML = \`<span class="system">\${text}</span>\`;
+            msgDiv.innerHTML = `<span class="system">${text}</span>`;
           } else {
             const teamClass = team === 'blue' ? 'blue' : (team === 'red' ? 'red' : '');
             const typeLabel = targetMode === 'team' ? '<span class="type team">팀</span>' : '<span class="type all">전체</span>';
-            msgDiv.innerHTML = \`\${typeLabel}<span class="sender \${teamClass}">\${sender}:</span> \${text}\`;
+            msgDiv.innerHTML = `${typeLabel}<span class="sender ${teamClass}">${sender}:</span> ${text}`;
           }
 
           msgContainer.appendChild(msgDiv);
@@ -395,8 +433,12 @@ app.get('/', (req, res) => {
           socket = io({ auth: { username } });
           const canvas = document.getElementById('game');
           const ctx = canvas.getContext('2d');
-          const miniCtx = document.getElementById('minimap').getContext('2d');
-          const portraitCtx = document.getElementById('portrait-canvas').getContext('2d');
+
+          const miniCanvas = document.getElementById('minimap');
+          const miniCtx = miniCanvas.getContext('2d');
+
+          const portraitCanvas = document.getElementById('portrait-canvas');
+          const portraitCtx = portraitCanvas.getContext('2d');
 
           const respawnOverlay = document.getElementById('respawn-overlay');
           const respawnTimer = document.getElementById('respawn-timer');
@@ -404,6 +446,7 @@ app.get('/', (req, res) => {
           const recallTimer = document.getElementById('recall-timer');
 
           const MAP_SIZE = 2000;
+
           let dpr = window.devicePixelRatio || 1;
           function resizeCanvas() {
             dpr = window.devicePixelRatio || 1;
@@ -418,7 +461,7 @@ app.get('/', (req, res) => {
 
           let serverPlayers = {};
           let clientPlayers = {};
-          let serverNexuses = { blue: { hp: 4000, maxHp: 4000 }, red: { hp: 4000, maxHp: 4000 } };
+          let clientNexuses = { blue: { hp: 4000, maxHp: 4000 }, red: { hp: 4000, maxHp: 4000 } };
           const keys = {};
           let camX = 1000, camY = 1000;
 
@@ -428,8 +471,11 @@ app.get('/', (req, res) => {
           chatInput.addEventListener('keydown', (e) => {
             e.stopPropagation();
             if (e.key === 'Enter') {
-              if (e.shiftKey) setChatMode(chatTargetMode === 'all' ? 'team' : 'all');
-              else sendChatMessage();
+              if (e.shiftKey) {
+                setChatMode(chatTargetMode === 'all' ? 'team' : 'all');
+              } else {
+                sendChatMessage();
+              }
             }
           });
 
@@ -438,11 +484,27 @@ app.get('/', (req, res) => {
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
               e.preventDefault(); keys[e.key] = true; sendMovement();
             }
-            if (e.code === 'Space') { e.preventDefault(); socket.emit('attack'); }
-            if (e.key === 'q' || e.key === 'Q' || e.key === 'ㅂ') socket.emit('useQ');
-            if (e.key === 'w' || e.key === 'W' || e.key === 'ㅈ') socket.emit('useW');
-            if (e.key === 'e' || e.key === 'E' || e.key === 'ㄷ') socket.emit('useE');
-            if (e.key === 'b' || e.key === 'B' || e.key === 'ㅠ') socket.emit('useRecall');
+            if (e.code === 'Space') {
+              e.preventDefault();
+              socket.emit('attack');
+            }
+            if (e.key === 'q' || e.key === 'Q' || e.key === 'ㅂ') {
+              e.preventDefault();
+              socket.emit('useQ');
+            }
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ㅈ') {
+              e.preventDefault();
+              socket.emit('useW');
+            }
+            if (e.key === 'e' || e.key === 'E' || e.key === 'ㄷ') {
+              e.preventDefault();
+              socket.emit('useE');
+            }
+            // B 키 귀환 요청
+            if (e.key === 'b' || e.key === 'B' || e.key === 'ㅠ') {
+              e.preventDefault();
+              socket.emit('startRecall');
+            }
           });
 
           window.addEventListener('keyup', (e) => {
@@ -462,43 +524,62 @@ app.get('/', (req, res) => {
           }
 
           socket.on('gameState', (data) => { 
-            serverPlayers = data.players; 
-            if (data.nexuses) serverNexuses = data.nexuses;
+            serverPlayers = data.players;
+            if (data.nexuses) clientNexuses = data.nexuses;
             updatePlayerListUI(serverPlayers);
 
             for (let id in serverPlayers) {
               const sp = serverPlayers[id];
               if (!clientPlayers[id]) {
-                clientPlayers[id] = { ...sp, renderX: sp.x, renderY: sp.y, renderAngle: 0 };
+                clientPlayers[id] = { ...sp, renderX: sp.x, renderY: sp.y, renderAngle: -40 * (Math.PI / 180) };
               } else {
-                Object.assign(clientPlayers[id], sp);
+                clientPlayers[id].x = sp.x;
+                clientPlayers[id].y = sp.y;
+                clientPlayers[id].dirX = sp.dirX;
+                clientPlayers[id].dirY = sp.dirY;
+                clientPlayers[id].isAttacking = sp.isAttacking;
+                clientPlayers[id].attackProgress = sp.attackProgress;
+                clientPlayers[id].username = sp.username;
+                clientPlayers[id].team = sp.team;
+                clientPlayers[id].hp = sp.hp;
+                clientPlayers[id].maxHp = sp.maxHp;
+                clientPlayers[id].shield = sp.shield;
+                clientPlayers[id].isDead = sp.isDead;
+                clientPlayers[id].respawnTime = sp.respawnTime;
+                
+                clientPlayers[id].lastQTime = sp.lastQTime;
+                clientPlayers[id].qCooldown = sp.qCooldown;
+                clientPlayers[id].lastWTime = sp.lastWTime;
+                clientPlayers[id].wCooldown = sp.wCooldown;
+                clientPlayers[id].lastETime = sp.lastETime;
+                clientPlayers[id].eCooldown = sp.eCooldown;
+
+                clientPlayers[id].hasQBuff = sp.hasQBuff;
+                clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
+                clientPlayers[id].hasShieldPhase = sp.hasShieldPhase;
+                clientPlayers[id].hasDamageReducePhase = sp.hasDamageReducePhase;
+                
+                clientPlayers[id].isEActive = sp.isEActive;
+                clientPlayers[id].eStartTime = sp.eStartTime;
+                clientPlayers[id].isArmorDebuffed = sp.isArmorDebuffed;
+
+                clientPlayers[id].isRecalling = sp.isRecalling;
+                clientPlayers[id].recallEndTime = sp.recallEndTime;
               }
             }
 
             for (let id in clientPlayers) {
               if (!serverPlayers[id]) delete clientPlayers[id];
             }
-
-            const gameOverOverlay = document.getElementById('game-over-overlay');
-            const gameOverText = document.getElementById('game-over-text');
-            const me = clientPlayers[socket.id];
-
-            if (data.gameOver && me) {
-              gameOverOverlay.style.display = 'flex';
-              if (data.winnerTeam === me.team) {
-                gameOverText.innerText = 'VICTORY';
-                gameOverText.className = 'victory';
-              } else {
-                gameOverText.innerText = 'DEFEAT';
-                gameOverText.className = 'defeat';
-              }
-            } else {
-              gameOverOverlay.style.display = 'none';
-            }
           });
 
           socket.on('chatMessage', (data) => {
             appendChatMessage(data.username, data.text, data.team, data.isSystem, data.targetMode);
+          });
+
+          socket.on('kicked', (reason) => {
+            alert(reason || '방장에 의해 강제 퇴장되었습니다.');
+            window.location.reload();
           });
 
           let lastTime = performance.now();
@@ -510,14 +591,29 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              let moveSpeedMultiplier = 1.0;
-              if (cp.hasSpeedBuff) moveSpeedMultiplier *= 1.35;
-              if (cp.isEActive) moveSpeedMultiplier *= 1.3;
+              const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
 
-              const baseSpeed = 21 * moveSpeedMultiplier; 
+              if (!cp.isEActive) {
+                if (cp.dirX < 0 && cp.dirY < 0) {
+                  cp.renderAngle = -140 * (Math.PI / 180);
+                } else if (cp.dirX > 0 && cp.dirY < 0) {
+                  cp.renderAngle = -40 * (Math.PI / 180);
+                } else if (cp.dirX < 0 && cp.dirY > 0) {
+                  cp.renderAngle = 140 * (Math.PI / 180);
+                } else if (cp.dirX > 0 && cp.dirY > 0) {
+                  cp.renderAngle = 40 * (Math.PI / 180);
+                } else if (cp.dirX < 0) {
+                  cp.renderAngle = -140 * (Math.PI / 180);
+                } else if (cp.dirX > 0) {
+                  cp.renderAngle = -40 * (Math.PI / 180);
+                } else if (cp.dirY < 0) {
+                  cp.renderAngle = -90 * (Math.PI / 180);
+                } else if (cp.dirY > 0) {
+                  cp.renderAngle = 90 * (Math.PI / 180);
+                }
+              }
 
               if (cp.dirX !== 0 || cp.dirY !== 0) {
-                cp.renderAngle = Math.atan2(cp.dirY, cp.dirX);
                 let mx = cp.dirX, my = cp.dirY;
                 if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
                 cp.renderX += mx * baseSpeed * dt;
@@ -529,22 +625,22 @@ app.get('/', (req, res) => {
             }
 
             const me = clientPlayers[socket.id];
-            if (me) {
-              if (me.isDead) {
-                document.body.classList.add('dead-screen');
-                respawnOverlay.style.display = 'block';
-                respawnTimer.innerText = Math.max(0, Math.ceil((me.respawnTime - Date.now()) / 1000));
-              } else {
-                document.body.classList.remove('dead-screen');
-                respawnOverlay.style.display = 'none';
-              }
+            if (me && me.isDead) {
+              document.body.classList.add('dead-screen');
+              respawnOverlay.style.display = 'block';
+              const remaining = Math.max(0, Math.ceil((me.respawnTime - Date.now()) / 1000));
+              respawnTimer.innerText = remaining;
+            } else {
+              document.body.classList.remove('dead-screen');
+              respawnOverlay.style.display = 'none';
+            }
 
-              if (me.isRecalling) {
-                recallOverlay.style.display = 'block';
-                recallTimer.innerText = Math.max(0, (me.recallEndTime - Date.now()) / 1000).toFixed(1);
-              } else {
-                recallOverlay.style.display = 'none';
-              }
+            if (me && me.isRecalling && !me.isDead) {
+              recallOverlay.style.display = 'block';
+              const remaining = Math.max(0, ((me.recallEndTime - Date.now()) / 1000)).toFixed(1);
+              recallTimer.innerText = remaining;
+            } else {
+              recallOverlay.style.display = 'none';
             }
 
             drawGame();
@@ -554,222 +650,343 @@ app.get('/', (req, res) => {
           }
           requestAnimationFrame(renderLoop);
 
-          function drawGarenCharacter(ctx, p) {
-            if (p.isDead) return;
-
-            ctx.save();
-            ctx.translate(p.renderX, p.renderY);
-
-            // W 스킬 보호막 효과
-            if (p.hasShieldPhase || p.hasDamageReducePhase) {
-              ctx.beginPath();
-              ctx.arc(0, 0, 35, 0, Math.PI * 2);
-              ctx.fillStyle = 'rgba(255, 215, 0, 0.25)';
-              ctx.fill();
-              ctx.strokeStyle = '#ffd700';
-              ctx.lineWidth = 2;
-              ctx.stroke();
+          function renderSword(ctx, isQBuff = false) {
+            if (isQBuff) {
+              ctx.shadowColor = '#FFE200';
+              ctx.shadowBlur = 10;
             }
 
-            // 회전 적용
-            ctx.rotate(p.renderAngle);
+            ctx.fillStyle = '#653311';
+            ctx.fillRect(3, -0.6, 2.5, 1.2);
 
-            // 1. 노란색 원형 캐릭터 본체
+            ctx.fillStyle = isQBuff ? '#FFF000' : '#D1AC38';
             ctx.beginPath();
-            ctx.arc(-15, 0, 20, 0, Math.PI * 2);
-            ctx.fillStyle = '#fde047'; // 원본 이미지 스타일의 노란색
+            ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
             ctx.fill();
 
-            // 2. 검손잡이 (갈색)
-            ctx.fillStyle = '#78350f';
-            ctx.fillRect(0, -3, 12, 6);
+            ctx.beginPath();
+            ctx.moveTo(6, -2.5); ctx.lineTo(7, 0); ctx.lineTo(6, 2.5); ctx.lineTo(5, 0);
+            ctx.fill();
 
-            // E 스킬 회전 시 검 전체 회전
-            if (p.isEActive) {
-              const elapsed = Date.now() - p.eStartTime;
-              const spinAngle = (elapsed / 100) * Math.PI;
+            ctx.fillStyle = '#1A1A1A';
+            ctx.fillRect(7.2, -1, 7, 2);
 
-              ctx.save();
-              ctx.rotate(spinAngle);
+            ctx.fillStyle = isQBuff ? '#FFFF88' : '#A0A0A0';
+            ctx.beginPath();
+            ctx.moveTo(7.2, -1.3);
+            ctx.lineTo(13.5, -1.3);
+            ctx.lineTo(16, 0);
+            ctx.lineTo(13.5, 1.3);
+            ctx.lineTo(7.2, 1.3);
+            ctx.fill();
 
-              // E 회전 잔상 이펙트
-              ctx.beginPath();
-              ctx.arc(0, 0, 45, 0, Math.PI * 2);
-              ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
-              ctx.lineWidth = 8;
-              ctx.stroke();
+            ctx.fillStyle = '#1A1A1A';
+            ctx.fillRect(8, -0.7, 5.5, 1.4);
 
-              drawSword(ctx, p.hasQBuff);
-              ctx.restore();
-            } else {
-              // 일반 상태 검 그리기
-              drawSword(ctx, p.hasQBuff);
-            }
-
-            ctx.restore();
+            ctx.fillStyle = '#D1AC38';
+            ctx.beginPath();
+            ctx.arc(8.5, 0, 0.5, 0, Math.PI * 2);
+            ctx.fill();
           }
 
-          function drawSword(ctx, isQBuff) {
-            ctx.save();
-            ctx.translate(10, 0); // 손잡이 위치 보정
+          function drawSimpleGaren(ctx, p) {
+            if (p.isDead) return;
 
-            if (isQBuff) {
-              ctx.shadowColor = '#facc15';
-              ctx.shadowBlur = 15;
+            // 귀환 이펙트 (파란 이펙트 ring)
+            if (p.isRecalling) {
+              ctx.save();
+              ctx.strokeStyle = '#00e5ff';
+              ctx.lineWidth = 2;
+              ctx.shadowColor = '#00e5ff';
+              ctx.shadowBlur = 12;
+              ctx.beginPath();
+              ctx.arc(0, 0, 16, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
             }
 
-            // 3. 칼자루 가드 (금색 톱니 장식)
-            ctx.fillStyle = '#eab308';
+            if (p.hasShieldPhase || p.hasDamageReducePhase) {
+              ctx.save();
+              ctx.shadowColor = '#FFD700';
+              ctx.shadowBlur = 15;
+              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.arc(0, 0, 11, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            }
+
+            ctx.fillStyle = '#FFE268';
             ctx.beginPath();
-            ctx.arc(8, 0, 8, 0, Math.PI * 2);
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            // 가드 뿔 장식
-            ctx.beginPath();
-            ctx.moveTo(8, -12); ctx.lineTo(12, -6); ctx.lineTo(4, -6); ctx.closePath();
-            ctx.moveTo(8, 12);  ctx.lineTo(12, 6);  ctx.lineTo(4, 6);  ctx.closePath();
-            ctx.moveTo(16, 0);  ctx.lineTo(10, -4); ctx.lineTo(10, 4); ctx.closePath();
-            ctx.fillStyle = '#ca8a04';
-            ctx.fill();
+            if (p.isEActive) {
+              const elapsed = Date.now() - p.eStartTime;
+              const spins = (elapsed / 3000) * (7 * Math.PI * 2);
+              
+              ctx.save();
+              ctx.rotate(spins);
 
-            // 4. 검은색 중앙 테두리
-            ctx.fillStyle = '#1e293b';
-            ctx.fillRect(10, -2, 28, 4);
+              ctx.fillStyle = 'rgba(255, 226, 104, 0.35)';
+              ctx.shadowColor = '#FFE200';
+              ctx.shadowBlur = 12;
+              ctx.beginPath();
+              ctx.arc(0, 0, 22, 0, Math.PI * 2);
+              ctx.fill();
 
-            // 5. 검은색 장식 보석
-            ctx.beginPath();
-            ctx.arc(16, 0, 2.5, 0, Math.PI * 2);
-            ctx.fillStyle = '#fef08a';
-            ctx.fill();
+              ctx.save();
+              ctx.translate(0, 0);
+              renderSword(ctx, true);
+              ctx.restore();
 
-            // 6. 검 날 (회색 외곽선 및 끝 날)
-            ctx.fillStyle = '#94a3b8';
-            ctx.beginPath();
-            ctx.moveTo(8, -6);
-            ctx.lineTo(36, -6);
-            ctx.lineTo(46, 0);  // 뾰족한 검 끝 부분
-            ctx.lineTo(36, 6);
-            ctx.lineTo(8, 6);
-            ctx.closePath();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#475569';
-            ctx.stroke();
+              ctx.restore();
+            } else {
+              let swingAngle = 0;
+              if (p.isAttacking) {
+                swingAngle = -1.2 + (p.attackProgress * 2.4);
+              }
 
-            ctx.restore();
+              ctx.save();
+              ctx.rotate(swingAngle);
+
+              if (p.isAttacking) {
+                ctx.fillStyle = p.hasQBuff ? 'rgba(255, 230, 0, 0.7)' : 'rgba(255, 226, 104, 0.45)';
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, 18, -1.2, -1.2 + (p.attackProgress * 2.4));
+                ctx.fill();
+              }
+
+              renderSword(ctx, p.hasQBuff);
+              ctx.restore();
+            }
           }
 
           function drawGarenPortrait(ctx) {
             ctx.clearRect(0, 0, 64, 64);
-            ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, 64, 64);
+            ctx.fillStyle = '#0a0f14';
+            ctx.fillRect(0, 0, 64, 64);
+
+            ctx.save();
+            ctx.translate(26, 38);
             
+            ctx.fillStyle = '#FFE268';
             ctx.beginPath();
-            ctx.arc(32, 32, 20, 0, Math.PI * 2);
-            ctx.fillStyle = '#fde047'; ctx.fill();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.rotate(-60 * (Math.PI / 180));
+
+            ctx.fillStyle = '#653311';
+            ctx.fillRect(6, -1.2, 5, 2.4);
+
+            ctx.fillStyle = '#D1AC38';
+            ctx.beginPath();
+            ctx.arc(11, 0, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#A0A0A0';
+            ctx.beginPath();
+            ctx.moveTo(13, -2.5);
+            ctx.lineTo(26, -2.5);
+            ctx.lineTo(31, 0);
+            ctx.lineTo(26, 2.5);
+            ctx.lineTo(13, 2.5);
+            ctx.fill();
+
+            ctx.restore();
+            ctx.restore();
           }
 
           function drawSkillIcons() {
-            const drawIcon = (id, color, label) => {
-              const c = document.getElementById(id).getContext('2d');
-              c.fillStyle = color; c.fillRect(0, 0, 48, 48);
-              c.fillStyle = '#fff'; c.font = 'bold 16px sans-serif';
-              c.textAlign = 'center'; c.textBaseline = 'middle';
-              c.fillText(label, 24, 24);
-            };
+            const qCanvas = document.getElementById('icon-q');
+            const qCtx = qCanvas.getContext('2d');
+            qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
+            qCtx.save();
+            qCtx.translate(16, 32);
+            qCtx.rotate(-45 * Math.PI / 180);
+            qCtx.scale(1.8, 1.8);
+            renderSword(qCtx, true);
+            qCtx.restore();
 
-            drawIcon('icon-q', '#1e3a8a', 'Q');
-            drawIcon('icon-w', '#065f46', 'W');
-            drawIcon('icon-e', '#991b1b', 'E');
-            drawIcon('icon-r', '#581c87', 'R');
+            const wCanvas = document.getElementById('icon-w');
+            const wCtx = wCanvas.getContext('2d');
+            wCtx.fillStyle = '#064e3b'; wCtx.fillRect(0, 0, 48, 48);
+            wCtx.save();
+            wCtx.translate(24, 24);
+            wCtx.shadowColor = '#FFD700'; wCtx.shadowBlur = 10;
+            wCtx.strokeStyle = '#FFD700'; wCtx.lineWidth = 3;
+            wCtx.beginPath(); wCtx.arc(0, 0, 14, 0, Math.PI * 2); wCtx.stroke();
+            wCtx.fillStyle = 'rgba(255, 215, 0, 0.3)'; wCtx.fill();
+            wCtx.restore();
+
+            const eCanvas = document.getElementById('icon-e');
+            const eCtx = eCanvas.getContext('2d');
+            eCtx.fillStyle = '#7f1d1d'; eCtx.fillRect(0, 0, 48, 48);
+            eCtx.strokeStyle = '#fca5a5'; eCtx.lineWidth = 3;
+            eCtx.beginPath(); eCtx.arc(24, 24, 12, 0, Math.PI * 1.5); eCtx.stroke();
+
+            const rCanvas = document.getElementById('icon-r');
+            const rCtx = rCanvas.getContext('2d');
+            rCtx.fillStyle = '#581c87'; rCtx.fillRect(0, 0, 48, 48);
+            rCtx.fillStyle = '#c084fc';
+            rCtx.fillRect(22, 10, 4, 28);
           }
 
           function drawHUD() {
             const me = clientPlayers[socket.id];
             if (!me) return;
+
             drawGarenPortrait(portraitCtx);
 
             const now = Date.now();
-            ['q', 'w', 'e'].forEach(skill => {
-              const cdBox = document.getElementById(\`cd-\${skill}\`);
-              const lastTime = me[\`last\${skill.toUpperCase()}Time\`];
-              const cooldown = me[\`\${skill}Cooldown\`];
-              const remaining = Math.max(0, Math.ceil(((lastTime + cooldown) - now) / 1000));
-              cdBox.style.display = remaining > 0 ? 'flex' : 'none';
-              if (remaining > 0) cdBox.innerText = remaining;
-            });
+
+            const qCdBox = document.getElementById('cd-q');
+            const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
+            if (qRemaining > 0) {
+              qCdBox.style.display = 'flex';
+              qCdBox.innerText = qRemaining;
+            } else {
+              qCdBox.style.display = 'none';
+            }
+
+            const wCdBox = document.getElementById('cd-w');
+            const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
+            if (wRemaining > 0) {
+              wCdBox.style.display = 'flex';
+              wCdBox.innerText = wRemaining;
+            } else {
+              wCdBox.style.display = 'none';
+            }
+
+            const eCdBox = document.getElementById('cd-e');
+            const eRemaining = Math.max(0, Math.ceil(((me.lastETime + me.eCooldown) - now) / 1000));
+            if (eRemaining > 0) {
+              eCdBox.style.display = 'flex';
+              eCdBox.innerText = eRemaining;
+            } else {
+              eCdBox.style.display = 'none';
+            }
           }
 
           function drawGame() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
             const me = clientPlayers[socket.id];
-            ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.save();
-            
             if (me) {
-              camX += (me.renderX - camX) * 0.2;
-              camY += (me.renderY - camY) * 0.2;
-              const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
-              ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
-              ctx.scale(1.2, 1.2); ctx.translate(-camX, -camY);
+              camX = me.renderX;
+              camY = me.renderY;
             }
 
-            if (mapImage.complete && mapImage.naturalWidth !== 0) {
+            const scale = (canvas.height / 500);
+
+            ctx.save();
+            ctx.scale(scale, scale);
+            ctx.translate((canvas.width / scale) / 2 - camX, (canvas.height / scale) / 2 - camY);
+
+            if (mapImage.complete) {
               ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
             }
 
-            // 넥서스 체력바 그리기
-            ['blue', 'red'].forEach(team => {
-              const nx = team === 'blue' ? 225 : 1786;
-              const ny = team === 'blue' ? 1766 : 223;
-              const nData = serverNexuses[team];
-              
-              if (nData) {
-                const barW = 60, barH = 8;
-                ctx.fillStyle = 'rgba(0,0,0,0.8)';
-                ctx.fillRect(nx - barW/2, ny - 50, barW, barH);
-                ctx.fillStyle = team === 'blue' ? '#00aaff' : '#ff4444';
-                ctx.fillRect(nx - barW/2, ny - 50, barW * (nData.hp / nData.maxHp), barH);
+            // 넥서스 체력바 렌더링
+            const nexusPositions = [
+              { team: 'blue', x: 225, y: 1766 },
+              { team: 'red', x: 1786, y: 223 }
+            ];
+
+            nexusPositions.forEach(n => {
+              const nexusData = clientNexuses[n.team];
+              if (nexusData) {
+                const barWidth = 40;
+                const barHeight = 5;
+                const barY = n.y - 45;
+
+                ctx.fillStyle = '#000';
+                ctx.fillRect(n.x - barWidth / 2 - 1, barY - 1, barWidth + 2, barHeight + 2);
+
+                const hpPercent = Math.max(0, nexusData.hp / nexusData.maxHp);
+                ctx.fillStyle = n.team === 'blue' ? '#00aaff' : '#ff4444';
+                ctx.fillRect(n.x - barWidth / 2, barY, barWidth * hpPercent, barHeight);
+
+                ctx.font = 'bold 4px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(`${nexusData.hp} / ${nexusData.maxHp}`, n.x, barY - 2);
               }
             });
 
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
-              if (p.isDead) continue;
 
-              drawGarenCharacter(ctx, p);
+              ctx.save();
+              ctx.translate(p.renderX, p.renderY);
 
-              // HP Bar
-              const barWidth = 40, barHeight = 6;
-              const barX = p.renderX - barWidth / 2, barY = p.renderY - 35;
-              const hpRatio = Math.max(0, p.hp / p.maxHp);
+              ctx.save();
+              ctx.rotate(p.renderAngle);
+              drawSimpleGaren(ctx, p);
+              ctx.restore();
 
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-              ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
-              ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
-              ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+              if (!p.isDead) {
+                const barWidth = 24;
+                const barHeight = 3;
+                const barY = -12;
 
-              ctx.font = 'bold 12px sans-serif';
-              ctx.textAlign = 'center';
-              ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
-              ctx.fillText(p.username, p.renderX, p.renderY - 41);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(-barWidth / 2 - 1, barY - 1, barWidth + 2, barHeight + 2);
+
+                const hpPercent = Math.max(0, p.hp / p.maxHp);
+                ctx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
+                ctx.fillRect(-barWidth / 2, barY, barWidth * hpPercent, barHeight);
+
+                if (p.shield > 0) {
+                  const shieldPercent = Math.min(1, p.shield / p.maxHp);
+                  ctx.fillStyle = '#ffffff';
+                  ctx.fillRect(-barWidth / 2 + (barWidth * hpPercent), barY, barWidth * shieldPercent, barHeight);
+                }
+
+                ctx.font = 'bold 3px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowColor = '#000000';
+                ctx.shadowBlur = 2;
+                ctx.fillText(p.username, 0, barY - 3);
+              }
+
+              ctx.restore();
             }
+
             ctx.restore();
           }
 
           function drawMinimap() {
-            const scale = 180 / MAP_SIZE;
-            miniCtx.fillStyle = '#111'; miniCtx.fillRect(0, 0, 180, 180);
+            miniCtx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
 
-            if (mapImage.complete && mapImage.naturalWidth !== 0) {
-              miniCtx.drawImage(mapImage, 0, 0, 180, 180);
+            if (mapImage.complete) {
+              miniCtx.drawImage(mapImage, 0, 0, miniCanvas.width, miniCanvas.height);
             }
 
-            const me = clientPlayers[socket.id];
+            const scale = miniCanvas.width / MAP_SIZE;
+
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
-              if (p.isDead || (me && p.team !== me.team)) continue;
+              if (p.isDead) continue;
+
+              const mx = p.renderX * scale;
+              const my = p.renderY * scale;
+
               miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
               miniCtx.beginPath();
-              miniCtx.arc(p.renderX * scale, p.renderY * scale, 4, 0, Math.PI * 2);
+              miniCtx.arc(mx, my, 3, 0, Math.PI * 2);
               miniCtx.fill();
+
+              if (id === socket.id) {
+                miniCtx.strokeStyle = '#ffffff';
+                miniCtx.lineWidth = 1;
+                miniCtx.stroke();
+              }
             }
           }
         }
@@ -779,155 +996,197 @@ app.get('/', (req, res) => {
   `);
 });
 
-io.use((socket, next) => {
-  const username = socket.handshake.auth.username;
-  if (!username) return next(new Error('닉네임이 올바르지 않습니다.'));
-  socket.username = username;
-  next();
-});
-
+// === Socket.IO 게임 로직 및 커스텀 가렌 스킬 처리 ===
 io.on('connection', (socket) => {
+  const username = socket.handshake.auth.username || 'Summoner';
   const team = getBalancedTeam();
-  socket.join(team);
+  const spawnX = team === 'blue' ? 200 : 1800;
+  const spawnY = team === 'blue' ? 1800 : 200;
 
-  const spawnX = team === 'blue' ? 100 : 1900;
-  const spawnY = team === 'blue' ? 1900 : 100;
+  players[socket.id] = {
+    id: socket.id,
+    username: username,
+    team: team,
+    x: spawnX,
+    y: spawnY,
+    dirX: 0,
+    dirY: 0,
+    hp: 620,
+    maxHp: 620,
+    shield: 0,
+    isDead: false,
+    respawnTime: 0,
 
-  players[socket.id] = { 
-    x: spawnX, y: spawnY, dirX: 0, dirY: 0,
-    username: socket.username, team: team,
-    isAttacking: false, attackProgress: 0, lastAttackTime: 0,
-    isDead: false, respawnTime: 0,
-    isRecalling: false, recallEndTime: 0,
+    isAttacking: false,
+    attackProgress: 0,
+    lastAttackTime: 0,
 
-    hp: 680, maxHp: 680, shield: 0, attackDamage: 68, armor: 38, magicResist: 32, hpRegen: 8,
-    wBonusStats: 0,
+    // Q 스킬
+    lastQTime: 0,
+    qCooldown: 8000,
+    hasQBuff: false,
+    qBuffEndTime: 0,
+    hasSpeedBuff: false,
+    speedBuffEndTime: 0,
 
-    qCooldown: 8000, lastQTime: 0,
-    wCooldown: 23000, lastWTime: 0,
-    eCooldown: 9000, lastETime: 0, isEActive: false, eStartTime: 0, eHitCount: {}, eDamageLevel: 0.25,
+    // W 스킬
+    lastWTime: 0,
+    wCooldown: 12000,
+    hasShieldPhase: false,
+    shieldPhaseEndTime: 0,
+    hasDamageReducePhase: false,
+    damageReduceEndTime: 0,
 
-    isArmorDebuffed: false, armorDebuffEndTime: 0,
-    hasQBuff: false, qBuffEndTime: 0,
-    hasSpeedBuff: false, speedBuffEndTime: 0,
-    hasShieldPhase: false, shieldPhaseEndTime: 0,
-    hasDamageReducePhase: false, damageReducePhaseEndTime: 0
+    // E 스킬
+    lastETime: 0,
+    eCooldown: 9000,
+    isEActive: false,
+    eStartTime: 0,
+    eTicksDone: 0,
+    isArmorDebuffed: false,
+
+    // B 키 귀환
+    isRecalling: false,
+    recallEndTime: 0
   };
 
   io.emit('chatMessage', {
     username: '시스템',
-    text: `${socket.username}님이 ${team === 'blue' ? '블루팀' : '레드팀'}으로 입장하셨습니다.`,
-    isSystem: true, targetMode: 'all'
+    text: `${username} 님이 입장하셨습니다. (${team === 'blue' ? '블루' : '레드'}팀)`,
+    isSystem: true
   });
 
   socket.on('keyMove', (dir) => {
-    const p = players[socket.id];
-    if (p && !p.isDead) {
-      if (dir.x !== 0 || dir.y !== 0) p.isRecalling = false;
-      p.dirX = dir.x;
-      p.dirY = dir.y;
+    const player = players[socket.id];
+    if (!player || player.isDead) return;
+
+    // 이동 키를 누르면 귀환 취소
+    if (dir.x !== 0 || dir.y !== 0) {
+      player.isRecalling = false;
     }
-  });
 
-  socket.on('useRecall', () => {
-    const p = players[socket.id];
-    if (p && !p.isDead && !p.isRecalling) {
-      p.isRecalling = true;
-      p.recallEndTime = Date.now() + 8000;
-    }
-  });
-
-  socket.on('useQ', () => {
-    const p = players[socket.id];
-    if (!p || p.isDead) return;
-    const now = Date.now();
-    if (now - p.lastQTime < p.qCooldown) return;
-
-    p.lastQTime = now; p.hasQBuff = true; p.qBuffEndTime = now + 4500;
-    p.hasSpeedBuff = true; p.speedBuffEndTime = now + 3000;
-    p.isRecalling = false;
-  });
-
-  socket.on('useW', () => {
-    const p = players[socket.id];
-    if (!p || p.isDead) return;
-    const now = Date.now();
-    if (now - p.lastWTime < p.wCooldown) return;
-
-    p.lastWTime = now; p.shield = p.maxHp * 0.15;
-    p.hasShieldPhase = true; p.shieldPhaseEndTime = now + 750;
-    p.hasDamageReducePhase = false; p.damageReducePhaseEndTime = now + 4750;
-    p.isRecalling = false;
-  });
-
-  socket.on('useE', () => {
-    const p = players[socket.id];
-    if (!p || p.isDead) return;
-    const now = Date.now();
-    if (now - p.lastETime < p.eCooldown) return;
-
-    p.lastETime = now; p.isEActive = true; p.eStartTime = now; p.eHitCount = {};
-    p.isRecalling = false;
+    player.dirX = dir.x;
+    player.dirY = dir.y;
   });
 
   socket.on('attack', () => {
-    const p = players[socket.id];
+    const player = players[socket.id];
+    if (!player || player.isDead || player.isAttacking || player.isEActive) return;
+
+    player.isRecalling = false; // 공격 시 귀환 취소
+    player.isAttacking = true;
+    player.attackProgress = 0;
+    player.lastAttackTime = Date.now();
+  });
+
+  socket.on('useQ', () => {
+    const player = players[socket.id];
+    if (!player || player.isDead) return;
     const now = Date.now();
-    if (p && !p.isDead && !p.isAttacking && !p.isEActive && (now - p.lastAttackTime >= 1000)) {
-      p.isAttacking = true; p.attackProgress = 0; p.lastAttackTime = now;
-      p.isRecalling = false;
 
-      let damage = p.hasQBuff ? p.attackDamage * 1.5 : p.attackDamage;
-      if (p.hasQBuff) p.hasQBuff = false;
-
-      const enemyTeam = p.team === 'blue' ? 'red' : 'blue';
-      const enemyNexus = nexuses[enemyTeam];
-      const ndx = enemyNexus.x - p.x, ndy = enemyNexus.y - p.y;
-      if (Math.sqrt(ndx * ndx + ndy * ndy) <= enemyNexus.radius + 30) {
-        enemyNexus.hp = Math.max(0, enemyNexus.hp - damage);
-        if (enemyNexus.hp === 0 && !gameOver) {
-          gameOver = true;
-          winnerTeam = p.team;
-        }
-      }
-
-      for (let targetId in players) {
-        if (targetId === socket.id) continue;
-        const target = players[targetId];
-        if (target.team === p.team || target.isDead) continue;
-
-        if (Math.sqrt((target.x - p.x)**2 + (target.y - p.y)**2) <= 50) {
-          let incomingDamage = Math.max(1, damage - target.armor);
-          target.hp = Math.max(0, target.hp - incomingDamage);
-          if (target.hp === 0) {
-            target.isDead = true;
-            target.respawnTime = Date.now() + 10000;
-          }
-        }
-      }
+    if (now - player.lastQTime >= player.qCooldown) {
+      player.isRecalling = false; // 스킬 사용 시 귀환 취소
+      player.lastQTime = now;
+      player.hasQBuff = true;
+      player.qBuffEndTime = now + 4500;
+      player.hasSpeedBuff = true;
+      player.speedBuffEndTime = now + 3500;
     }
   });
 
-  socket.on('requestRestart', () => {
-    if (gameOver) {
-      gameOver = false;
-      winnerTeam = null;
-      nexuses.blue.hp = 4000;
-      nexuses.red.hp = 4000;
+  socket.on('useW', () => {
+    const player = players[socket.id];
+    if (!player || player.isDead) return;
+    const now = Date.now();
+
+    if (now - player.lastWTime >= player.wCooldown) {
+      player.isRecalling = false; // 스킬 사용 시 귀환 취소
+      player.lastWTime = now;
+      player.hasShieldPhase = true;
+      player.shieldPhaseEndTime = now + 2000;
+      player.hasDamageReducePhase = true;
+      player.damageReduceEndTime = now + 4000;
+
+      const shieldValue = 65 + (player.maxHp * 0.18);
+      player.shield = shieldValue;
+    }
+  });
+
+  socket.on('useE', () => {
+    const player = players[socket.id];
+    if (!player || player.isDead || player.isEActive) return;
+    const now = Date.now();
+
+    if (now - player.lastETime >= player.eCooldown) {
+      player.isRecalling = false; // 스킬 사용 시 귀환 취소
+      player.lastETime = now;
+      player.isEActive = true;
+      player.eStartTime = now;
+      player.eTicksDone = 0;
+    }
+  });
+
+  // 귀환 시작 요청
+  socket.on('startRecall', () => {
+    const player = players[socket.id];
+    if (!player || player.isDead || player.isRecalling) return;
+
+    const now = Date.now();
+    player.isRecalling = true;
+    player.recallEndTime = now + 8000; // 8초 후 귀환 완료
+  });
+
+  socket.on('chatMessage', (data) => {
+    const player = players[socket.id];
+    if (!player) return;
+
+    const targetMode = data.targetMode || 'all';
+
+    if (targetMode === 'team') {
       for (let id in players) {
-        players[id].hp = players[id].maxHp;
-        players[id].x = players[id].team === 'blue' ? 100 : 1900;
-        players[id].y = players[id].team === 'blue' ? 1900 : 100;
-        players[id].isDead = false;
+        if (players[id].team === player.team) {
+          io.to(id).emit('chatMessage', {
+            username: player.username,
+            text: data.text,
+            team: player.team,
+            targetMode: 'team'
+          });
+        }
+      }
+    } else {
+      io.emit('chatMessage', {
+        username: player.username,
+        text: data.text,
+        team: player.team,
+        targetMode: 'all'
+      });
+    }
+  });
+
+  socket.on('kickPlayer', (targetId) => {
+    const sender = players[socket.id];
+    if (sender && sender.username === '박준우') {
+      const target = players[targetId];
+      if (target) {
+        io.to(targetId).emit('kicked', '방장에 의해 강제 퇴장되었습니다.');
+        delete players[targetId];
       }
     }
   });
 
   socket.on('disconnect', () => {
-    delete players[socket.id];
+    if (players[socket.id]) {
+      io.emit('chatMessage', {
+        username: '시스템',
+        text: `${players[socket.id].username} 님이 퇴장하셨습니다.`,
+        isSystem: true
+      });
+      delete players[socket.id];
+    }
   });
 });
 
+// 서버 틱 루프 (60FPS)
 setInterval(() => {
   const now = Date.now();
 
@@ -935,69 +1194,155 @@ setInterval(() => {
     const p = players[id];
 
     if (p.isDead) {
+      p.isRecalling = false;
       if (now >= p.respawnTime) {
-        p.isDead = false; p.hp = p.maxHp;
-        p.x = p.team === 'blue' ? 100 : 1900;
-        p.y = p.team === 'blue' ? 1900 : 100;
+        p.isDead = false;
+        p.hp = p.maxHp;
+        p.shield = 0;
+        p.x = p.team === 'blue' ? 200 : 1800;
+        p.y = p.team === 'blue' ? 1800 : 200;
       }
       continue;
     }
 
+    // 귀환 시간 완료 판정
     if (p.isRecalling && now >= p.recallEndTime) {
       p.isRecalling = false;
-      p.x = p.team === 'blue' ? 100 : 1900;
-      p.y = p.team === 'blue' ? 1900 : 100;
+      p.x = p.team === 'blue' ? 200 : 1800;
+      p.y = p.team === 'blue' ? 1800 : 200;
+      p.hp = p.maxHp; // 귀환 시 체력 회복
     }
 
-    const fountainX = p.team === 'blue' ? 100 : 1900;
-    const fountainY = p.team === 'blue' ? 1900 : 100;
-    if (Math.sqrt((p.x - fountainX)**2 + (p.y - fountainY)**2) < 200) {
-      p.hp = Math.min(p.maxHp, p.hp + (p.maxHp * 0.25 / 60));
+    // 버프 및 상태 이상 타이머 처리
+    if (p.hasQBuff && now > p.qBuffEndTime) p.hasQBuff = false;
+    if (p.hasSpeedBuff && now > p.speedBuffEndTime) p.hasSpeedBuff = false;
+
+    if (p.hasShieldPhase && now > p.shieldPhaseEndTime) {
+      p.hasShieldPhase = false;
+      p.shield = 0;
+    }
+    if (p.hasDamageReducePhase && now > p.damageReduceEndTime) {
+      p.hasDamageReducePhase = false;
     }
 
-    if (p.isEActive) {
-      if (now - p.eStartTime >= 3000) p.isEActive = false;
-      else {
-        for (let tId in players) {
-          if (tId === id) continue;
-          const target = players[tId];
-          if (target.team === p.team || target.isDead) continue;
+    // 이동 로직
+    const baseSpeed = p.hasSpeedBuff ? 4.968 : 3.68;
+    if (p.dirX !== 0 || p.dirY !== 0) {
+      let mx = p.dirX, my = p.dirY;
+      if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
 
-          if (Math.sqrt((target.x - p.x)**2 + (target.y - p.y)**2) <= 60) {
-            target.hp = Math.max(0, target.hp - p.eDamageLevel);
-            if (target.hp === 0) {
-              target.isDead = true;
-              target.respawnTime = Date.now() + 10000;
+      const nextX = p.x + mx * baseSpeed;
+      const nextY = p.y + my * baseSpeed;
+
+      if (!isColliding(nextX, p.y)) p.x = Math.max(10, Math.min(MAP_SIZE - 10, nextX));
+      if (!isColliding(p.x, nextY)) p.y = Math.max(10, Math.min(MAP_SIZE - 10, nextY));
+    }
+
+    // 일반 공격 평타 판정 (피해를 입으면 대상의 귀환 취소)
+    if (p.isAttacking) {
+      p.attackProgress += 0.12;
+      if (p.attackProgress >= 0.5 && p.attackProgress - 0.12 < 0.5) {
+        for (let otherId in players) {
+          const target = players[otherId];
+          if (otherId !== id && target.team !== p.team && !target.isDead) {
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist <= 45) {
+              target.isRecalling = false; // 피격 시 귀환 취소
+              let damage = p.hasQBuff ? 85 : 45;
+              
+              if (target.hasDamageReducePhase) damage *= 0.7;
+
+              if (target.shield > 0) {
+                if (target.shield >= damage) {
+                  target.shield -= damage;
+                  damage = 0;
+                } else {
+                  damage -= target.shield;
+                  target.shield = 0;
+                }
+              }
+
+              target.hp -= damage;
+              if (p.hasQBuff) p.hasQBuff = false;
+
+              if (target.hp <= 0) {
+                target.isDead = true;
+                target.respawnTime = now + 10000;
+                io.emit('chatMessage', {
+                  username: '시스템',
+                  text: `${p.username} 님이 ${target.username} 님을 처치했습니다!`,
+                  isSystem: true
+                });
+              }
             }
           }
         }
       }
+
+      if (p.attackProgress >= 1.0) {
+        p.isAttacking = false;
+        p.attackProgress = 0;
+      }
     }
 
-    if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
-    if (p.hasSpeedBuff && now >= p.speedBuffEndTime) p.hasSpeedBuff = false;
+    // E 스킬 틱 판정 (3초 동안 7회 타격)
+    if (p.isEActive) {
+      const elapsed = now - p.eStartTime;
+      const currentTick = Math.floor(elapsed / (3000 / 7));
 
-    if (p.isAttacking) {
-      p.attackProgress += 0.05;
-      if (p.attackProgress >= 1) { p.isAttacking = false; p.attackProgress = 0; }
+      if (currentTick > p.eTicksDone && currentTick <= 7) {
+        p.eTicksDone = currentTick;
+
+        for (let otherId in players) {
+          const target = players[otherId];
+          if (otherId !== id && target.team !== p.team && !target.isDead) {
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist <= 55) {
+              target.isRecalling = false; // 피격 시 귀환 취소
+              let damage = 22;
+              if (target.hasDamageReducePhase) damage *= 0.7;
+
+              if (target.shield > 0) {
+                if (target.shield >= damage) {
+                  target.shield -= damage;
+                  damage = 0;
+                } else {
+                  damage -= target.shield;
+                  target.shield = 0;
+                }
+              }
+
+              target.hp -= damage;
+              if (target.hp <= 0) {
+                target.isDead = true;
+                target.respawnTime = now + 10000;
+                io.emit('chatMessage', {
+                  username: '시스템',
+                  text: `${p.username} 님이 ${target.username} 님을 처치했습니다!`,
+                  isSystem: true
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (elapsed >= 3000) {
+        p.isEActive = false;
+      }
     }
-
-    let currentSpeed = 0.35;
-    if (p.hasSpeedBuff) currentSpeed *= 1.35;
-    if (p.isEActive) currentSpeed *= 1.3;
-
-    let moveX = p.dirX, moveY = p.dirY;
-    if (moveX !== 0 && moveY !== 0) { moveX *= 0.7071; moveY *= 0.7071; }
-
-    const nextX = p.x + moveX * currentSpeed;
-    const nextY = p.y + moveY * currentSpeed;
-
-    if (nextX >= 10 && nextX <= MAP_SIZE - 10 && !isColliding(nextX, p.y)) p.x = nextX;
-    if (nextY >= 10 && nextY <= MAP_SIZE - 10 && !isColliding(p.x, nextY)) p.y = nextY;
   }
 
-  io.emit('gameState', { players, nexuses, gameOver, winnerTeam });
+  io.emit('gameState', { players, nexuses });
 }, 1000 / 60);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => { console.log(`게임 서버 작동 중 (포트: ${PORT})`); });
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
