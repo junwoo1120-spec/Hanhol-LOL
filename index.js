@@ -13,11 +13,6 @@ app.use(express.static(path.join(__dirname)));
 const MAP_SIZE = 2000;
 let players = {};
 
-let nexuses = {
-  blue: { x: 225, y: 1766, radius: 35, hp: 4000, maxHp: 4000 },
-  red: { x: 1786, y: 223, radius: 35, hp: 4000, maxHp: 4000 }
-};
-
 function getBalancedTeam() {
   let blueCount = 0;
   let redCount = 0;
@@ -90,18 +85,14 @@ app.get('/', (req, res) => {
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
         canvas { display: block; width: 100vw; height: 100vh; background: #000; }
         
-        .dead-screen { filter: grayscale(100%); }
+        .dead-screen {
+          filter: grayscale(100%);
+        }
 
         #respawn-overlay {
           position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
           font-size: 28px; font-weight: bold; color: #ff3333; text-shadow: 2px 2px 4px #000;
           display: none; z-index: 10; pointer-events: none;
-        }
-
-        #recall-overlay {
-          position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
-          font-size: 24px; font-weight: bold; color: #00ccff; text-shadow: 2px 2px 4px #000;
-          display: none; z-index: 10; pointer-events: none; text-align: center;
         }
 
         #auth-screen {
@@ -238,7 +229,6 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div id="respawn-overlay">부활 대기 중... <span id="respawn-timer">10</span>초</div>
-      <div id="recall-overlay">귀환 중... <span id="recall-timer">8.0</span>초</div>
 
       <div id="auth-screen">
         <div class="auth-box">
@@ -332,7 +322,7 @@ app.get('/', (req, res) => {
         }
 
         function kickPlayer(targetId, targetName) {
-          if (confirm("'" + targetName + "' 님을 강퇴하시겠습니까?")) {
+          if (confirm(\`'\${targetName}' 님을 강퇴하시겠습니까?\`)) {
             socket.emit('kickPlayer', targetId);
           }
         }
@@ -347,10 +337,10 @@ app.get('/', (req, res) => {
           contentDiv.innerHTML = '';
           entries.forEach(([id, p]) => {
             const item = document.createElement('div');
-            item.className = 'player-item ' + p.team;
+            item.className = \`player-item \${p.team}\`;
             
             let nameSpan = document.createElement('span');
-            nameSpan.innerText = p.username + ' (' + (p.team === 'blue' ? '블루' : '레드') + ')';
+            nameSpan.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
             item.appendChild(nameSpan);
 
             if (myUsername === '박준우' && id !== socket.id) {
@@ -417,11 +407,11 @@ app.get('/', (req, res) => {
           msgDiv.className = 'chat-msg';
 
           if (isSystem) {
-            msgDiv.innerHTML = '<span class="system">' + text + '</span>';
+            msgDiv.innerHTML = \`<span class="system">\${text}</span>\`;
           } else {
             const teamClass = team === 'blue' ? 'blue' : (team === 'red' ? 'red' : '');
             const typeLabel = targetMode === 'team' ? '<span class="type team">팀</span>' : '<span class="type all">전체</span>';
-            msgDiv.innerHTML = typeLabel + '<span class="sender ' + teamClass + '">' + sender + ':</span> ' + text;
+            msgDiv.innerHTML = \`\${typeLabel}<span class="sender \${teamClass}">\${sender}:</span> \${text}\`;
           }
 
           msgContainer.appendChild(msgDiv);
@@ -441,8 +431,6 @@ app.get('/', (req, res) => {
 
           const respawnOverlay = document.getElementById('respawn-overlay');
           const respawnTimer = document.getElementById('respawn-timer');
-          const recallOverlay = document.getElementById('recall-overlay');
-          const recallTimer = document.getElementById('recall-timer');
 
           const MAP_SIZE = 2000;
 
@@ -460,7 +448,6 @@ app.get('/', (req, res) => {
 
           let serverPlayers = {};
           let clientPlayers = {};
-          let clientNexuses = { blue: { hp: 4000, maxHp: 4000 }, red: { hp: 4000, maxHp: 4000 } };
           const keys = {};
           let camX = 1000, camY = 1000;
 
@@ -499,10 +486,6 @@ app.get('/', (req, res) => {
               e.preventDefault();
               socket.emit('useE');
             }
-            if (e.key === 'b' || e.key === 'B' || e.key === 'ㅠ') {
-              e.preventDefault();
-              socket.emit('startRecall');
-            }
           });
 
           window.addEventListener('keyup', (e) => {
@@ -522,8 +505,7 @@ app.get('/', (req, res) => {
           }
 
           socket.on('gameState', (data) => { 
-            serverPlayers = data.players;
-            if (data.nexuses) clientNexuses = data.nexuses;
+            serverPlayers = data.players; 
             updatePlayerListUI(serverPlayers);
 
             for (let id in serverPlayers) {
@@ -560,9 +542,6 @@ app.get('/', (req, res) => {
                 clientPlayers[id].isEActive = sp.isEActive;
                 clientPlayers[id].eStartTime = sp.eStartTime;
                 clientPlayers[id].isArmorDebuffed = sp.isArmorDebuffed;
-
-                clientPlayers[id].isRecalling = sp.isRecalling;
-                clientPlayers[id].recallEndTime = sp.recallEndTime;
               }
             }
 
@@ -589,8 +568,7 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              // === 이동 속도 원래대로 복구 (기본: 180, 버프: 245) ===
-              const baseSpeed = cp.hasSpeedBuff ? 245 : 180; 
+              const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
 
               if (!cp.isEActive) {
                 if (cp.dirX < 0 && cp.dirY < 0) {
@@ -632,14 +610,6 @@ app.get('/', (req, res) => {
             } else {
               document.body.classList.remove('dead-screen');
               respawnOverlay.style.display = 'none';
-            }
-
-            if (me && me.isRecalling && !me.isDead) {
-              recallOverlay.style.display = 'block';
-              const remaining = Math.max(0, ((me.recallEndTime - Date.now()) / 1000)).toFixed(1);
-              recallTimer.innerText = remaining;
-            } else {
-              recallOverlay.style.display = 'none';
             }
 
             drawGame();
@@ -691,18 +661,6 @@ app.get('/', (req, res) => {
           function drawSimpleGaren(ctx, p) {
             if (p.isDead) return;
 
-            if (p.isRecalling) {
-              ctx.save();
-              ctx.strokeStyle = '#00e5ff';
-              ctx.lineWidth = 2;
-              ctx.shadowColor = '#00e5ff';
-              ctx.shadowBlur = 12;
-              ctx.beginPath();
-              ctx.arc(0, 0, 16, 0, Math.PI * 2);
-              ctx.stroke();
-              ctx.restore();
-            }
-
             if (p.hasShieldPhase || p.hasDamageReducePhase) {
               ctx.save();
               ctx.shadowColor = '#FFD700';
@@ -721,23 +679,27 @@ app.get('/', (req, res) => {
             ctx.fill();
 
             if (p.isEActive) {
+              // E스킬 회전 연산
               const elapsed = Date.now() - p.eStartTime;
               const spins = (elapsed / 3000) * (7 * Math.PI * 2);
               
               ctx.save();
               ctx.rotate(spins);
 
-              ctx.fillStyle = 'rgba(255, 226, 104, 0.35)';
-              ctx.shadowColor = '#FFE200';
-              ctx.shadowBlur = 12;
-              ctx.beginPath();
-              ctx.arc(0, 0, 22, 0, Math.PI * 2);
-              ctx.fill();
-
+              // 검 길이에만 맞춰 남아있는 황금빛 궤적/잔상 (호 형태)
               ctx.save();
-              ctx.translate(0, 0);
-              renderSword(ctx, true);
+              ctx.shadowColor = '#FFE200';
+              ctx.shadowBlur = 10;
+              ctx.strokeStyle = 'rgba(255, 226, 104, 0.6)';
+              ctx.lineWidth = 4;
+              ctx.beginPath();
+              // 검의 날 부분 시작점(7.2)부터 끝점(16)까지의 범위에 잔상 궤적 형성
+              ctx.arc(0, 0, 12, -0.8, 0.2);
+              ctx.stroke();
               ctx.restore();
+
+              // 실제 칼 그리기
+              renderSword(ctx, true);
 
               ctx.restore();
             } else {
@@ -844,147 +806,128 @@ app.get('/', (req, res) => {
 
             const qCdBox = document.getElementById('cd-q');
             const qRemaining = Math.max(0, Math.ceil(((me.lastQTime + me.qCooldown) - now) / 1000));
-            if (qRemaining > 0) {
-              qCdBox.style.display = 'flex';
-              qCdBox.innerText = qRemaining;
-            } else {
-              qCdBox.style.display = 'none';
-            }
+            qCdBox.style.display = qRemaining > 0 ? 'flex' : 'none';
+            if (qRemaining > 0) qCdBox.innerText = qRemaining;
 
             const wCdBox = document.getElementById('cd-w');
             const wRemaining = Math.max(0, Math.ceil(((me.lastWTime + me.wCooldown) - now) / 1000));
-            if (wRemaining > 0) {
-              wCdBox.style.display = 'flex';
-              wCdBox.innerText = wRemaining;
-            } else {
-              wCdBox.style.display = 'none';
-            }
+            wCdBox.style.display = wRemaining > 0 ? 'flex' : 'none';
+            if (wRemaining > 0) wCdBox.innerText = wRemaining;
 
             const eCdBox = document.getElementById('cd-e');
             const eRemaining = Math.max(0, Math.ceil(((me.lastETime + me.eCooldown) - now) / 1000));
-            if (eRemaining > 0) {
-              eCdBox.style.display = 'flex';
-              eCdBox.innerText = eRemaining;
-            } else {
-              eCdBox.style.display = 'none';
-            }
+            eCdBox.style.display = eRemaining > 0 ? 'flex' : 'none';
+            if (eRemaining > 0) eCdBox.innerText = eRemaining;
           }
 
           function drawGame() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             const me = clientPlayers[socket.id];
+            ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            
             if (me) {
-              camX = me.renderX;
-              camY = me.renderY;
+              camX += (me.renderX - camX) * 0.2;
+              camY += (me.renderY - camY) * 0.2;
+              const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
+              ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
+              ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
             }
 
-            // === 시야 범위(줌 레벨) 원래대로 복구 (기본: 1.0) ===
-            const scale = (canvas.height / 500) * 1.0;
-
-            ctx.save();
-            ctx.scale(scale, scale);
-            ctx.translate((canvas.width / scale) / 2 - camX, (canvas.height / scale) / 2 - camY);
-
-            if (mapImage.complete) {
+            if (mapImage.complete && mapImage.naturalWidth !== 0) {
               ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
             }
-
-            const nexusPositions = [
-              { team: 'blue', x: 225, y: 1766 },
-              { team: 'red', x: 1786, y: 223 }
-            ];
-
-            nexusPositions.forEach(n => {
-              const nexusData = clientNexuses[n.team];
-              if (nexusData) {
-                const barWidth = 40;
-                const barHeight = 5;
-                const barY = n.y - 45;
-
-                ctx.fillStyle = '#000';
-                ctx.fillRect(n.x - barWidth / 2 - 1, barY - 1, barWidth + 2, barHeight + 2);
-
-                const hpPercent = Math.max(0, nexusData.hp / nexusData.maxHp);
-                ctx.fillStyle = n.team === 'blue' ? '#00aaff' : '#ff4444';
-                ctx.fillRect(n.x - barWidth / 2, barY, barWidth * hpPercent, barHeight);
-
-                ctx.font = 'bold 4px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillStyle = '#ffffff';
-                ctx.fillText(nexusData.hp + ' / ' + nexusData.maxHp, n.x, barY - 2);
-              }
-            });
-
-            for (let id in clientPlayers) {
-              const p = clientPlayers[id];
-
-              ctx.save();
-              ctx.translate(p.renderX, p.renderY);
-
-              ctx.save();
-              ctx.rotate(p.renderAngle);
-              drawSimpleGaren(ctx, p);
-              ctx.restore();
-
-              if (!p.isDead) {
-                const barWidth = 24;
-                const barHeight = 3;
-                const barY = -12;
-
-                ctx.fillStyle = '#000';
-                ctx.fillRect(-barWidth / 2 - 1, barY - 1, barWidth + 2, barHeight + 2);
-
-                const hpPercent = Math.max(0, p.hp / p.maxHp);
-                ctx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
-                ctx.fillRect(-barWidth / 2, barY, barWidth * hpPercent, barHeight);
-
-                if (p.shield > 0) {
-                  const shieldPercent = Math.min(1, p.shield / p.maxHp);
-                  ctx.fillStyle = '#ffffff';
-                  ctx.fillRect(-barWidth / 2 + (barWidth * hpPercent), barY, barWidth * shieldPercent, barHeight);
-                }
-
-                ctx.font = 'bold 3px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillStyle = '#ffffff';
-                ctx.shadowColor = '#000000';
-                ctx.shadowBlur = 2;
-                ctx.fillText(p.username, 0, barY - 3);
-              }
-
-              ctx.restore();
-            }
-
-            ctx.restore();
-          }
-
-          function drawMinimap() {
-            miniCtx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
-
-            if (mapImage.complete) {
-              miniCtx.drawImage(mapImage, 0, 0, miniCanvas.width, miniCanvas.height);
-            }
-
-            const scale = miniCanvas.width / MAP_SIZE;
 
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
               if (p.isDead) continue;
+
+              ctx.save();
+              ctx.translate(p.renderX, p.renderY);
+              
+              ctx.scale(1.3, 1.3);
+              if (!p.isEActive) ctx.rotate(p.renderAngle);
+
+              drawSimpleGaren(ctx, p);
+
+              ctx.restore();
+
+              const barWidth = 14;
+              const barHeight = 2;
+              const barX = p.renderX - barWidth / 2;
+              const barY = p.renderY - 10;
+              const hpRatio = Math.max(0, p.hp / p.maxHp);
+              const shieldRatio = Math.min(1, p.shield / p.maxHp);
+
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+              ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
+
+              ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
+              ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
+
+              if (p.shield > 0) {
+                ctx.fillStyle = '#FFFFCC';
+                const hpWidth = barWidth * hpRatio;
+                ctx.fillRect(barX + hpWidth, barY, Math.min(barWidth - hpWidth, barWidth * shieldRatio), barHeight);
+              }
+
+              // 방깎 이펙트 표시
+              if (p.isArmorDebuffed) {
+                ctx.fillStyle = '#A855F7';
+                ctx.font = 'bold 3px sans-serif';
+                ctx.fillText('🛡️-25%', p.renderX, p.renderY + 8);
+              }
+
+              ctx.font = 'bold 4.5px sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
+              
+              ctx.strokeStyle = '#000000';
+              ctx.lineWidth = 0.8;
+              ctx.strokeText(p.username, p.renderX, p.renderY - 13);
+              ctx.fillText(p.username, p.renderX, p.renderY - 13);
+            }
+            ctx.restore();
+          }
+
+          function drawMinimap() {
+            const scale = 180 / MAP_SIZE;
+            miniCtx.fillStyle = '#111';
+            miniCtx.fillRect(0, 0, 180, 180);
+
+            if (mapImage.complete && mapImage.naturalWidth !== 0) {
+              miniCtx.drawImage(mapImage, 0, 0, 180, 180);
+            }
+
+            const me = clientPlayers[socket.id];
+
+            for (let id in clientPlayers) {
+              const p = clientPlayers[id];
+
+              if (p.isDead || (me && p.team !== me.team)) continue;
 
               const mx = p.renderX * scale;
               const my = p.renderY * scale;
 
               miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
               miniCtx.beginPath();
-              miniCtx.arc(mx, my, 3, 0, Math.PI * 2);
+              miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
               miniCtx.fill();
+              miniCtx.strokeStyle = '#000000';
+              miniCtx.lineWidth = 1;
+              miniCtx.stroke();
+            }
 
-              if (id === socket.id) {
-                miniCtx.strokeStyle = '#ffffff';
-                miniCtx.lineWidth = 1;
-                miniCtx.stroke();
-              }
+            if (me) {
+              const cssWidth = canvas.width / dpr;
+              const cssHeight = canvas.height / dpr;
+              const viewW = (cssWidth / 4.0) * scale;
+              const viewH = (cssHeight / 4.0) * scale;
+              const viewX = (camX * scale) - (viewW / 2);
+              const viewY = (camY * scale) - (viewH / 2);
+
+              miniCtx.strokeStyle = '#ffffff';
+              miniCtx.lineWidth = 1;
+              miniCtx.strokeRect(viewX, viewY, viewW, viewH);
             }
           }
         }
@@ -994,179 +937,243 @@ app.get('/', (req, res) => {
   `);
 });
 
-// === Socket.IO 게임 로직 및 커스텀 가렌 스킬 처리 ===
+io.use((socket, next) => {
+  const username = socket.handshake.auth.username;
+  if (!username) return next(new Error('닉네임이 올바르지 않습니다.'));
+  socket.username = username;
+  next();
+});
+
 io.on('connection', (socket) => {
-  const username = socket.handshake.auth.username || 'Summoner';
   const team = getBalancedTeam();
-  const spawnX = team === 'blue' ? 200 : 1800;
-  const spawnY = team === 'blue' ? 1800 : 200;
+  
+  socket.join(team);
 
-  players[socket.id] = {
-    id: socket.id,
-    username: username,
-    team: team,
-    x: spawnX,
-    y: spawnY,
-    dirX: 0,
+  const spawnX = team === 'blue' ? 100 : 1900;
+  const spawnY = team === 'blue' ? 1900 : 100;
+
+  players[socket.id] = { 
+    x: spawnX, 
+    y: spawnY, 
+    dirX: 0, 
     dirY: 0,
-    hp: 620,
-    maxHp: 620,
-    shield: 0,
-    isDead: false,
-    respawnTime: 0,
-
+    username: socket.username,
+    team: team,
     isAttacking: false,
     attackProgress: 0,
     lastAttackTime: 0,
 
-    // Q 스킬
-    lastQTime: 0,
+    isDead: false,
+    respawnTime: 0,
+
+    hp: 680,
+    maxHp: 680,
+    shield: 0,
+    attackDamage: 68,
+    armor: 38,
+    magicResist: 32,
+    hpRegen: 8,
+
+    wBonusStats: 0,
+
     qCooldown: 8000,
+    lastQTime: 0,
+
+    wCooldown: 23000,
+    lastWTime: 0,
+
+    eCooldown: 9000,
+    lastETime: 0,
+    isEActive: false,
+    eStartTime: 0,
+    eHitCount: {},
+    eDamageLevel: 4,
+
+    isArmorDebuffed: false,
+    armorDebuffEndTime: 0,
+
     hasQBuff: false,
     qBuffEndTime: 0,
     hasSpeedBuff: false,
     speedBuffEndTime: 0,
 
-    // W 스킬
-    lastWTime: 0,
-    wCooldown: 12000,
     hasShieldPhase: false,
     shieldPhaseEndTime: 0,
     hasDamageReducePhase: false,
-    damageReduceEndTime: 0,
-
-    // E 스킬
-    lastETime: 0,
-    eCooldown: 9000,
-    isEActive: false,
-    eStartTime: 0,
-    eTicksDone: 0,
-    isArmorDebuffed: false,
-
-    // B 키 귀환
-    isRecalling: false,
-    recallEndTime: 0
+    damageReducePhaseEndTime: 0
   };
 
+  const teamName = team === 'blue' ? '블루팀' : '레드팀';
   io.emit('chatMessage', {
     username: '시스템',
-    text: `${username} 님이 입장하셨습니다. (${team === 'blue' ? '블루' : '레드'}팀)`,
-    isSystem: true
+    text: `${socket.username}님이 ${teamName}으로 입장하셨습니다.`,
+    isSystem: true,
+    targetMode: 'all'
   });
 
   socket.on('keyMove', (dir) => {
-    const player = players[socket.id];
-    if (!player || player.isDead) return;
-
-    if (dir.x !== 0 || dir.y !== 0) {
-      player.isRecalling = false;
+    if (players[socket.id] && !players[socket.id].isDead) {
+      players[socket.id].dirX = dir.x;
+      players[socket.id].dirY = dir.y;
     }
-
-    player.dirX = dir.x;
-    player.dirY = dir.y;
-  });
-
-  socket.on('attack', () => {
-    const player = players[socket.id];
-    if (!player || player.isDead || player.isAttacking || player.isEActive) return;
-
-    player.isRecalling = false;
-    player.isAttacking = true;
-    player.attackProgress = 0;
-    player.lastAttackTime = Date.now();
   });
 
   socket.on('useQ', () => {
-    const player = players[socket.id];
-    if (!player || player.isDead) return;
-    const now = Date.now();
+    const p = players[socket.id];
+    if (!p || p.isDead) return;
 
-    if (now - player.lastQTime >= player.qCooldown) {
-      player.isRecalling = false;
-      player.lastQTime = now;
-      player.hasQBuff = true;
-      player.qBuffEndTime = now + 4500;
-      player.hasSpeedBuff = true;
-      player.speedBuffEndTime = now + 3500;
-    }
+    const now = Date.now();
+    if (now - p.lastQTime < p.qCooldown) return;
+
+    p.lastQTime = now;
+    p.hasQBuff = true;
+    p.qBuffEndTime = now + 4500;
+
+    const randomDuration = (1 + Math.random() * 2.6) * 1000;
+    p.hasSpeedBuff = true;
+    p.speedBuffEndTime = now + randomDuration;
   });
 
   socket.on('useW', () => {
-    const player = players[socket.id];
-    if (!player || player.isDead) return;
+    const p = players[socket.id];
+    if (!p || p.isDead) return;
+
     const now = Date.now();
+    if (now - p.lastWTime < p.wCooldown) return;
 
-    if (now - player.lastWTime >= player.wCooldown) {
-      player.isRecalling = false;
-      player.lastWTime = now;
-      player.hasShieldPhase = true;
-      player.shieldPhaseEndTime = now + 2000;
-      player.hasDamageReducePhase = true;
-      player.damageReduceEndTime = now + 4000;
+    p.lastWTime = now;
 
-      const shieldValue = 65 + (player.maxHp * 0.18);
-      player.shield = shieldValue;
-    }
+    p.shield = p.maxHp * 0.15;
+    p.hasShieldPhase = true;
+    p.shieldPhaseEndTime = now + 750;
+
+    p.hasDamageReducePhase = false;
+    p.damageReducePhaseEndTime = now + 4750;
   });
 
   socket.on('useE', () => {
-    const player = players[socket.id];
-    if (!player || player.isDead || player.isEActive) return;
-    const now = Date.now();
+    const p = players[socket.id];
+    if (!p || p.isDead) return;
 
-    if (now - player.lastETime >= player.eCooldown) {
-      player.isRecalling = false;
-      player.lastETime = now;
-      player.isEActive = true;
-      player.eStartTime = now;
-      player.eTicksDone = 0;
+    const now = Date.now();
+    if (now - p.lastETime < p.eCooldown) return;
+
+    p.lastETime = now;
+    p.isEActive = true;
+    p.eStartTime = now;
+    p.eHitCount = {};
+  });
+
+  socket.on('attack', () => {
+    const p = players[socket.id];
+    const now = Date.now();
+    if (p && !p.isDead && !p.isAttacking && !p.isEActive && (now - p.lastAttackTime >= 1000)) {
+      p.isAttacking = true;
+      p.attackProgress = 0;
+      p.lastAttackTime = now;
+
+      let damage = p.attackDamage;
+      if (p.hasQBuff) {
+        damage *= 1.5;
+        p.hasQBuff = false;
+      }
+
+      for (let targetId in players) {
+        if (targetId === socket.id) continue;
+        const target = players[targetId];
+        if (target.team === p.team || target.isDead) continue;
+
+        const dx = target.x - p.x;
+        const dy = target.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= 35) {
+          let totalArmor = target.armor + target.wBonusStats;
+          if (target.isArmorDebuffed) totalArmor *= 0.75;
+
+          let incomingDamage = Math.max(1, damage - totalArmor);
+
+          if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+          if (target.shield > 0) {
+            if (target.shield >= incomingDamage) {
+              target.shield -= incomingDamage;
+              incomingDamage = 0;
+            } else {
+              incomingDamage -= target.shield;
+              target.shield = 0;
+            }
+          }
+
+          if (incomingDamage > 0) {
+            target.hp = Math.max(0, target.hp - incomingDamage);
+            
+            if (target.hp === 0) {
+              target.isDead = true;
+              target.respawnTime = Date.now() + 10000;
+              target.hasQBuff = false;
+              target.hasSpeedBuff = false;
+              target.hasShieldPhase = false;
+              target.hasDamageReducePhase = false;
+              target.isEActive = false;
+              target.shield = 0;
+
+              if (p.wBonusStats < 30) {
+                p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
+              }
+
+              io.emit('chatMessage', {
+                username: '시스템',
+                text: `${p.username}님이 ${target.username}님을 처치했습니다!`,
+                isSystem: true,
+                targetMode: 'all'
+              });
+            }
+          }
+        }
+      }
     }
   });
 
-  socket.on('startRecall', () => {
-    const player = players[socket.id];
-    if (!player || player.isDead || player.isRecalling) return;
-
-    const now = Date.now();
-    player.isRecalling = true;
-    player.recallEndTime = now + 8000;
+  socket.on('kickPlayer', (targetSocketId) => {
+    if (socket.username === '박준우') {
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (targetSocket) {
+        targetSocket.emit('kicked', '방장에 의해 강제 퇴장당했습니다.');
+        targetSocket.disconnect(true);
+      }
+    }
   });
 
   socket.on('chatMessage', (data) => {
-    const player = players[socket.id];
-    if (!player) return;
+    const senderPlayer = players[socket.id];
+    if (!senderPlayer) return;
 
-    const targetMode = data.targetMode || 'all';
+    let text = '';
+    let targetMode = 'all';
+
+    if (typeof data === 'string') {
+      text = data;
+    } else if (typeof data === 'object' && data.text) {
+      text = data.text;
+      targetMode = data.targetMode || 'all';
+    }
+
+    text = text.trim().substring(0, 100);
+    if (!text) return;
+
+    const payload = {
+      username: socket.username,
+      text: text,
+      team: senderPlayer.team,
+      isSystem: false,
+      targetMode: targetMode
+    };
 
     if (targetMode === 'team') {
-      for (let id in players) {
-        if (players[id].team === player.team) {
-          io.to(id).emit('chatMessage', {
-            username: player.username,
-            text: data.text,
-            team: player.team,
-            targetMode: 'team'
-          });
-        }
-      }
+      io.to(senderPlayer.team).emit('chatMessage', payload);
     } else {
-      io.emit('chatMessage', {
-        username: player.username,
-        text: data.text,
-        team: player.team,
-        targetMode: 'all'
-      });
-    }
-  });
-
-  socket.on('kickPlayer', (targetId) => {
-    const sender = players[socket.id];
-    if (sender && sender.username === '박준우') {
-      const target = players[targetId];
-      if (target) {
-        io.to(targetId).emit('kicked', '방장에 의해 강제 퇴장되었습니다.');
-        delete players[targetId];
-      }
+      io.emit('chatMessage', payload);
     }
   });
 
@@ -1174,8 +1181,9 @@ io.on('connection', (socket) => {
     if (players[socket.id]) {
       io.emit('chatMessage', {
         username: '시스템',
-        text: `${players[socket.id].username} 님이 퇴장하셨습니다.`,
-        isSystem: true
+        text: `${players[socket.id].username}님이 퇴장하셨습니다.`,
+        isSystem: true,
+        targetMode: 'all'
       });
       delete players[socket.id];
     }
@@ -1189,151 +1197,142 @@ setInterval(() => {
     const p = players[id];
 
     if (p.isDead) {
-      p.isRecalling = false;
       if (now >= p.respawnTime) {
         p.isDead = false;
         p.hp = p.maxHp;
-        p.shield = 0;
-        p.x = p.team === 'blue' ? 200 : 1800;
-        p.y = p.team === 'blue' ? 1800 : 200;
+        p.x = p.team === 'blue' ? 100 : 1900;
+        p.y = p.team === 'blue' ? 1900 : 100;
+        p.dirX = 0;
+        p.dirY = 0;
       }
       continue;
     }
 
-    if (p.isRecalling && now >= p.recallEndTime) {
-      p.isRecalling = false;
-      p.x = p.team === 'blue' ? 200 : 1800;
-      p.y = p.team === 'blue' ? 1800 : 200;
-      p.hp = p.maxHp;
+    if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
+      p.isArmorDebuffed = false;
     }
 
-    if (p.hasQBuff && now > p.qBuffEndTime) p.hasQBuff = false;
-    if (p.hasSpeedBuff && now > p.speedBuffEndTime) p.hasSpeedBuff = false;
+    if (p.isEActive) {
+      if (now - p.eStartTime >= 3000) {
+        p.isEActive = false;
+      } else {
+        let targetsInRange = [];
+        for (let tId in players) {
+          if (tId === id) continue;
+          const target = players[tId];
+          if (target.team === p.team || target.isDead) continue;
 
-    if (p.hasShieldPhase && now > p.shieldPhaseEndTime) {
-      p.hasShieldPhase = false;
-      p.shield = 0;
-    }
-    if (p.hasDamageReducePhase && now > p.damageReduceEndTime) {
-      p.hasDamageReducePhase = false;
-    }
+          const dx = target.x - p.x;
+          const dy = target.y - p.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // === 서버 이동 처리 속도 복구 (기본: 3.0, 버프: 4.1) ===
-    const baseSpeed = p.hasSpeedBuff ? 4.1 : 3.0;
-    if (p.dirX !== 0 || p.dirY !== 0) {
-      let mx = p.dirX, my = p.dirY;
-      if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
+          if (dist <= 40) {
+            targetsInRange.push({ id: tId, target, dist });
+          }
+        }
 
-      const nextX = p.x + mx * baseSpeed;
-      const nextY = p.y + my * baseSpeed;
+        if (targetsInRange.length > 0) {
+          targetsInRange.sort((a, b) => a.dist - b.dist);
+          const closestTargetId = targetsInRange[0].id;
 
-      if (!isColliding(nextX, p.y)) p.x = Math.max(10, Math.min(MAP_SIZE - 10, nextX));
-      if (!isColliding(p.x, nextY)) p.y = Math.max(10, Math.min(MAP_SIZE - 10, nextY));
-    }
+          targetsInRange.forEach(({ id: tId, target }) => {
+            let baseDamage = p.eDamageLevel;
+            
+            if (tId === closestTargetId) {
+              baseDamage *= 1.25;
+            }
 
-    if (p.isAttacking) {
-      p.attackProgress += 0.12;
-      if (p.attackProgress >= 0.5 && p.attackProgress - 0.12 < 0.5) {
-        for (let otherId in players) {
-          const target = players[otherId];
-          if (otherId !== id && target.team !== p.team && !target.isDead) {
-            const dx = target.x - p.x;
-            const dy = target.y - p.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            let totalArmor = target.armor + target.wBonusStats;
+            if (target.isArmorDebuffed) totalArmor *= 0.75;
 
-            if (dist <= 45) {
-              target.isRecalling = false;
-              let damage = p.hasQBuff ? 85 : 45;
+            let incomingDamage = Math.max(0.5, baseDamage - (totalArmor * 0.1));
+
+            if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+            if (target.shield > 0) {
+              if (target.shield >= incomingDamage) {
+                target.shield -= incomingDamage;
+                incomingDamage = 0;
+              } else {
+                incomingDamage -= target.shield;
+                target.shield = 0;
+              }
+            }
+
+            if (incomingDamage > 0) {
+              target.hp = Math.max(0, target.hp - incomingDamage);
               
-              if (target.hasDamageReducePhase) damage *= 0.7;
-
-              if (target.shield > 0) {
-                if (target.shield >= damage) {
-                  target.shield -= damage;
-                  damage = 0;
-                } else {
-                  damage -= target.shield;
-                  target.shield = 0;
-                }
+              p.eHitCount[tId] = (p.eHitCount[tId] || 0) + 1;
+              
+              if (p.eHitCount[tId] >= 6) {
+                target.isArmorDebuffed = true;
+                target.armorDebuffEndTime = now + 6000;
               }
 
-              target.hp -= damage;
-              if (p.hasQBuff) p.hasQBuff = false;
-
-              if (target.hp <= 0) {
+              if (target.hp === 0) {
                 target.isDead = true;
-                target.respawnTime = now + 10000;
+                target.respawnTime = Date.now() + 10000;
+                target.isEActive = false;
+
+                if (p.wBonusStats < 30) {
+                  p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
+                }
+
                 io.emit('chatMessage', {
                   username: '시스템',
-                  text: `${p.username} 님이 ${target.username} 님을 처치했습니다!`,
-                  isSystem: true
+                  text: `${p.username}님이 ${target.username}님을 처치했습니다!`,
+                  isSystem: true,
+                  targetMode: 'all'
                 });
               }
             }
-          }
+          });
         }
       }
+    }
 
-      if (p.attackProgress >= 1.0) {
+    if (p.hp < p.maxHp) {
+      p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
+    }
+
+    if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
+    if (p.hasSpeedBuff && now >= p.speedBuffEndTime) p.hasSpeedBuff = false;
+
+    if (p.hasShieldPhase) {
+      if (now >= p.shieldPhaseEndTime) {
+        p.hasShieldPhase = false;
+        p.shield = 0;
+        p.hasDamageReducePhase = true;
+      }
+    }
+    
+    if (p.hasDamageReducePhase && now >= p.damageReducePhaseEndTime) {
+      p.hasDamageReducePhase = false;
+    }
+
+    if (p.isAttacking) {
+      p.attackProgress += 0.05;
+      if (p.attackProgress >= 1) {
         p.isAttacking = false;
         p.attackProgress = 0;
       }
     }
 
-    if (p.isEActive) {
-      const elapsed = now - p.eStartTime;
-      const currentTick = Math.floor(elapsed / (3000 / 7));
+    const currentSpeed = p.hasSpeedBuff ? 0.6133 * 1.35 : 0.6133;
 
-      if (currentTick > p.eTicksDone && currentTick <= 7) {
-        p.eTicksDone = currentTick;
-
-        for (let otherId in players) {
-          const target = players[otherId];
-          if (otherId !== id && target.team !== p.team && !target.isDead) {
-            const dx = target.x - p.x;
-            const dy = target.y - p.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-
-            if (dist <= 55) {
-              target.isRecalling = false;
-              let damage = 22;
-              if (target.hasDamageReducePhase) damage *= 0.7;
-
-              if (target.shield > 0) {
-                if (target.shield >= damage) {
-                  target.shield -= damage;
-                  damage = 0;
-                } else {
-                  damage -= target.shield;
-                  target.shield = 0;
-                }
-              }
-
-              target.hp -= damage;
-              if (target.hp <= 0) {
-                target.isDead = true;
-                target.respawnTime = now + 10000;
-                io.emit('chatMessage', {
-                  username: '시스템',
-                  text: `${p.username} 님이 ${target.username} 님을 처치했습니다!`,
-                  isSystem: true
-                });
-              }
-            }
-          }
-        }
-      }
-
-      if (elapsed >= 3000) {
-        p.isEActive = false;
-      }
+    let moveX = p.dirX, moveY = p.dirY;
+    if (moveX !== 0 && moveY !== 0) {
+      moveX *= 0.7071; moveY *= 0.7071;
     }
-  }
 
-  io.emit('gameState', { players, nexuses });
+    const nextX = p.x + moveX * currentSpeed;
+    const nextY = p.y + moveY * currentSpeed;
+
+    if (nextX >= 10 && nextX <= MAP_SIZE - 10 && !isColliding(nextX, p.y)) p.x = nextX;
+    if (nextY >= 10 && nextY <= MAP_SIZE - 10 && !isColliding(p.x, nextY)) p.y = nextY;
+  }
+  io.emit('gameState', { players });
 }, 1000 / 60);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => { console.log(`게임 서버 작동 중 (포트: ${PORT})`); });
