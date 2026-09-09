@@ -15,7 +15,6 @@ let players = {};
 let gameOver = false;
 let winnerTeam = null;
 
-// 넥서스 상태 (체력 4000)
 let nexuses = {
   blue: { x: 225, y: 1766, hp: 4000, maxHp: 4000, radius: 35 },
   red: { x: 1786, y: 223, hp: 4000, maxHp: 4000, radius: 35 }
@@ -72,7 +71,7 @@ const colliders = [
   { x: 1867, y: 1388, radius: TURRET_RADIUS }
 ];
 
-function isColliding(x, y, playerRadius = 4.2) {
+function isColliding(x, y, playerRadius = 15) {
   for (let c of colliders) {
     const dx = x - c.x;
     const dy = y - c.y;
@@ -86,7 +85,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Summoner's Rift Classic - Custom Garen</title>
+      <title>Summoner's Rift Classic - Garen</title>
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
@@ -338,7 +337,7 @@ app.get('/', (req, res) => {
           entries.forEach(([id, p]) => {
             const item = document.createElement('div');
             item.className = \`player-item \${p.team}\`;
-            item.innerHTML = \`<span>\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\` ;
+            item.innerHTML = \`<span>\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
             contentDiv.appendChild(item);
           });
         }
@@ -470,7 +469,7 @@ app.get('/', (req, res) => {
             for (let id in serverPlayers) {
               const sp = serverPlayers[id];
               if (!clientPlayers[id]) {
-                clientPlayers[id] = { ...sp, renderX: sp.x, renderY: sp.y, renderAngle: -40 * (Math.PI / 180) };
+                clientPlayers[id] = { ...sp, renderX: sp.x, renderY: sp.y, renderAngle: 0 };
               } else {
                 Object.assign(clientPlayers[id], sp);
               }
@@ -480,7 +479,6 @@ app.get('/', (req, res) => {
               if (!serverPlayers[id]) delete clientPlayers[id];
             }
 
-            // 승패 조건 체크 UI
             const gameOverOverlay = document.getElementById('game-over-overlay');
             const gameOverText = document.getElementById('game-over-text');
             const me = clientPlayers[socket.id];
@@ -518,18 +516,8 @@ app.get('/', (req, res) => {
 
               const baseSpeed = 21 * moveSpeedMultiplier; 
 
-              if (!cp.isEActive) {
-                if (cp.dirX < 0 && cp.dirY < 0) cp.renderAngle = -140 * (Math.PI / 180);
-                else if (cp.dirX > 0 && cp.dirY < 0) cp.renderAngle = -40 * (Math.PI / 180);
-                else if (cp.dirX < 0 && cp.dirY > 0) cp.renderAngle = 140 * (Math.PI / 180);
-                else if (cp.dirX > 0 && cp.dirY > 0) cp.renderAngle = 40 * (Math.PI / 180);
-                else if (cp.dirX < 0) cp.renderAngle = -140 * (Math.PI / 180);
-                else if (cp.dirX > 0) cp.renderAngle = -40 * (Math.PI / 180);
-                else if (cp.dirY < 0) cp.renderAngle = -90 * (Math.PI / 180);
-                else if (cp.dirY > 0) cp.renderAngle = 90 * (Math.PI / 180);
-              }
-
               if (cp.dirX !== 0 || cp.dirY !== 0) {
+                cp.renderAngle = Math.atan2(cp.dirY, cp.dirX);
                 let mx = cp.dirX, my = cp.dirY;
                 if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
                 cp.renderX += mx * baseSpeed * dt;
@@ -566,73 +554,92 @@ app.get('/', (req, res) => {
           }
           requestAnimationFrame(renderLoop);
 
-          function renderSword(ctx, isQBuff = false) {
-            if (isQBuff) { ctx.shadowColor = '#FFE200'; ctx.shadowBlur = 10; }
-            ctx.fillStyle = '#653311'; ctx.fillRect(3, -0.6, 2.5, 1.2);
-            ctx.fillStyle = isQBuff ? '#FFF000' : '#D1AC38';
-            ctx.beginPath(); ctx.arc(6, 0, 1.8, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#1A1A1A'; ctx.fillRect(7.2, -1, 7, 2);
-            ctx.fillStyle = isQBuff ? '#FFFF88' : '#A0A0A0';
-            ctx.beginPath();
-            ctx.moveTo(7.2, -1.3); ctx.lineTo(13.5, -1.3); ctx.lineTo(16, 0); ctx.lineTo(13.5, 1.3); ctx.lineTo(7.2, 1.3);
-            ctx.fill();
-          }
-
-          function drawSimpleGaren(ctx, p) {
+          function drawGarenCharacter(ctx, p) {
             if (p.isDead) return;
 
+            ctx.save();
+            ctx.translate(p.renderX, p.renderY);
+
+            // W 스킬 보호막 효과
             if (p.hasShieldPhase || p.hasDamageReducePhase) {
-              ctx.save();
-              ctx.shadowColor = '#FFD700'; ctx.shadowBlur = 15;
-              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)'; ctx.lineWidth = 2.5;
-              ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.stroke();
-              ctx.restore();
+              ctx.beginPath();
+              ctx.arc(0, 0, 24, 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(255, 215, 0, 0.25)';
+              ctx.fill();
+              ctx.strokeStyle = '#ffd700';
+              ctx.lineWidth = 2;
+              ctx.stroke();
             }
 
-            ctx.fillStyle = '#FFE268';
-            ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+            // 회전 적용
+            ctx.rotate(p.renderAngle);
 
+            // 본체 (원형 기본 디자인 원복)
+            ctx.beginPath();
+            ctx.arc(0, 0, 16, 0, Math.PI * 2);
+            ctx.fillStyle = p.team === 'blue' ? '#2563eb' : '#dc2626';
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#f59e0b'; // 가렌 특유의 금빛 갑옷 테두리
+            ctx.stroke();
+
+            // 어깨 갑옷 표현
+            ctx.fillStyle = '#fbbf24';
+            ctx.fillRect(-6, -18, 12, 5);
+            ctx.fillRect(-6, 13, 12, 5);
+
+            // 검 / E 스킬 휠풍 효과
             if (p.isEActive) {
               const elapsed = Date.now() - p.eStartTime;
-              const spins = (elapsed / 3000) * (7 * Math.PI * 2);
+              const angle = (elapsed / 100) * Math.PI;
               
               ctx.save();
-              ctx.rotate(spins);
-              ctx.shadowColor = '#FFE200'; ctx.shadowBlur = 10;
-              ctx.strokeStyle = 'rgba(255, 226, 104, 0.6)'; ctx.lineWidth = 4;
-              ctx.beginPath(); ctx.arc(0, 0, 12, -0.8, 0.2); ctx.stroke();
-              renderSword(ctx, true);
+              ctx.rotate(angle);
+              ctx.beginPath();
+              ctx.arc(0, 0, 32, 0, Math.PI * 2);
+              ctx.strokeStyle = 'rgba(251, 191, 36, 0.6)';
+              ctx.lineWidth = 6;
+              ctx.stroke();
+
+              ctx.fillStyle = '#eab308';
+              ctx.fillRect(0, -4, 36, 8);
               ctx.restore();
             } else {
-              let swingAngle = p.isAttacking ? -1.2 + (p.attackProgress * 2.4) : 0;
-              ctx.save();
-              ctx.rotate(swingAngle);
-              renderSword(ctx, p.hasQBuff);
-              ctx.restore();
+              // 일반 검
+              ctx.fillStyle = p.hasQBuff ? '#facc15' : '#cbd5e1';
+              ctx.fillRect(8, -3, 20, 6);
+              if (p.hasQBuff) {
+                ctx.shadowColor = '#facc15';
+                ctx.shadowBlur = 10;
+              }
             }
+
+            ctx.restore();
           }
 
           function drawGarenPortrait(ctx) {
             ctx.clearRect(0, 0, 64, 64);
-            ctx.fillStyle = '#0a0f14'; ctx.fillRect(0, 0, 64, 64);
-            ctx.save(); ctx.translate(26, 38);
-            ctx.fillStyle = '#FFE268'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
-            ctx.restore();
+            ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, 64, 64);
+            
+            ctx.beginPath();
+            ctx.arc(32, 32, 20, 0, Math.PI * 2);
+            ctx.fillStyle = '#2563eb'; ctx.fill();
+            ctx.lineWidth = 3; ctx.strokeStyle = '#fbbf24'; ctx.stroke();
           }
 
           function drawSkillIcons() {
-            const qCtx = document.getElementById('icon-q').getContext('2d');
-            qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
-            renderSword(qCtx, true);
+            const drawIcon = (id, color, label) => {
+              const c = document.getElementById(id).getContext('2d');
+              c.fillStyle = color; c.fillRect(0, 0, 48, 48);
+              c.fillStyle = '#fff'; c.font = 'bold 16px sans-serif';
+              c.textAlign = 'center'; c.textBaseline = 'middle';
+              c.fillText(label, 24, 24);
+            };
 
-            const wCtx = document.getElementById('icon-w').getContext('2d');
-            wCtx.fillStyle = '#064e3b'; wCtx.fillRect(0, 0, 48, 48);
-
-            const eCtx = document.getElementById('icon-e').getContext('2d');
-            eCtx.fillStyle = '#7f1d1d'; eCtx.fillRect(0, 0, 48, 48);
-
-            const rCtx = document.getElementById('icon-r').getContext('2d');
-            rCtx.fillStyle = '#581c87'; rCtx.fillRect(0, 0, 48, 48);
+            drawIcon('icon-q', '#1e3a8a', 'Q');
+            drawIcon('icon-w', '#065f46', 'W');
+            drawIcon('icon-e', '#991b1b', 'E');
+            drawIcon('icon-r', '#581c87', 'R');
           }
 
           function drawHUD() {
@@ -661,7 +668,7 @@ app.get('/', (req, res) => {
               camY += (me.renderY - camY) * 0.2;
               const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
               ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
-              ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
+              ctx.scale(1.2, 1.2); ctx.translate(-camX, -camY);
             }
 
             if (mapImage.complete && mapImage.naturalWidth !== 0) {
@@ -675,11 +682,11 @@ app.get('/', (req, res) => {
               const nData = serverNexuses[team];
               
               if (nData) {
-                const barW = 30, barH = 4;
+                const barW = 60, barH = 8;
                 ctx.fillStyle = 'rgba(0,0,0,0.8)';
-                ctx.fillRect(nx - barW/2, ny - 45, barW, barH);
+                ctx.fillRect(nx - barW/2, ny - 50, barW, barH);
                 ctx.fillStyle = team === 'blue' ? '#00aaff' : '#ff4444';
-                ctx.fillRect(nx - barW/2, ny - 45, barW * (nData.hp / nData.maxHp), barH);
+                ctx.fillRect(nx - barW/2, ny - 50, barW * (nData.hp / nData.maxHp), barH);
               }
             });
 
@@ -687,27 +694,22 @@ app.get('/', (req, res) => {
               const p = clientPlayers[id];
               if (p.isDead) continue;
 
-              ctx.save();
-              ctx.translate(p.renderX, p.renderY);
-              ctx.scale(1.3, 1.3);
-              if (!p.isEActive) ctx.rotate(p.renderAngle);
-              drawSimpleGaren(ctx, p);
-              ctx.restore();
+              drawGarenCharacter(ctx, p);
 
               // HP Bar
-              const barWidth = 14, barHeight = 2;
-              const barX = p.renderX - barWidth / 2, barY = p.renderY - 10;
+              const barWidth = 40, barHeight = 6;
+              const barX = p.renderX - barWidth / 2, barY = p.renderY - 30;
               const hpRatio = Math.max(0, p.hp / p.maxHp);
 
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-              ctx.fillRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+              ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
               ctx.fillStyle = (p.team === 'blue') ? '#22c55e' : '#ef4444';
               ctx.fillRect(barX, barY, barWidth * hpRatio, barHeight);
 
-              ctx.font = 'bold 4.5px sans-serif';
+              ctx.font = 'bold 12px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
-              ctx.fillText(p.username, p.renderX, p.renderY - 13);
+              ctx.fillText(p.username, p.renderX, p.renderY - 36);
             }
             ctx.restore();
           }
@@ -726,7 +728,7 @@ app.get('/', (req, res) => {
               if (p.isDead || (me && p.team !== me.team)) continue;
               miniCtx.fillStyle = p.team === 'blue' ? '#00aaff' : '#ff4444';
               miniCtx.beginPath();
-              miniCtx.arc(p.renderX * scale, p.renderY * scale, 3.5, 0, Math.PI * 2);
+              miniCtx.arc(p.renderX * scale, p.renderY * scale, 4, 0, Math.PI * 2);
               miniCtx.fill();
             }
           }
@@ -781,7 +783,7 @@ io.on('connection', (socket) => {
   socket.on('keyMove', (dir) => {
     const p = players[socket.id];
     if (p && !p.isDead) {
-      if (dir.x !== 0 || dir.y !== 0) p.isRecalling = false; // 이동 시 귀환 취소
+      if (dir.x !== 0 || dir.y !== 0) p.isRecalling = false;
       p.dirX = dir.x;
       p.dirY = dir.y;
     }
@@ -838,11 +840,10 @@ io.on('connection', (socket) => {
       let damage = p.hasQBuff ? p.attackDamage * 1.5 : p.attackDamage;
       if (p.hasQBuff) p.hasQBuff = false;
 
-      // 넥서스 공격 판정
       const enemyTeam = p.team === 'blue' ? 'red' : 'blue';
       const enemyNexus = nexuses[enemyTeam];
       const ndx = enemyNexus.x - p.x, ndy = enemyNexus.y - p.y;
-      if (Math.sqrt(ndx * ndx + ndy * ndy) <= enemyNexus.radius + 20) {
+      if (Math.sqrt(ndx * ndx + ndy * ndy) <= enemyNexus.radius + 30) {
         enemyNexus.hp = Math.max(0, enemyNexus.hp - damage);
         if (enemyNexus.hp === 0 && !gameOver) {
           gameOver = true;
@@ -850,13 +851,12 @@ io.on('connection', (socket) => {
         }
       }
 
-      // 챔피언 공격 판정
       for (let targetId in players) {
         if (targetId === socket.id) continue;
         const target = players[targetId];
         if (target.team === p.team || target.isDead) continue;
 
-        if (Math.sqrt((target.x - p.x)**2 + (target.y - p.y)**2) <= 35) {
+        if (Math.sqrt((target.x - p.x)**2 + (target.y - p.y)**2) <= 50) {
           let incomingDamage = Math.max(1, damage - target.armor);
           target.hp = Math.max(0, target.hp - incomingDamage);
           if (target.hp === 0) {
@@ -903,21 +903,18 @@ setInterval(() => {
       continue;
     }
 
-    // 귀환 완료 처리
     if (p.isRecalling && now >= p.recallEndTime) {
       p.isRecalling = false;
       p.x = p.team === 'blue' ? 100 : 1900;
       p.y = p.team === 'blue' ? 1900 : 100;
     }
 
-    // 우물 회복 처리 (우물 근처일 때 초당 약 25% 회복)
     const fountainX = p.team === 'blue' ? 100 : 1900;
     const fountainY = p.team === 'blue' ? 1900 : 100;
     if (Math.sqrt((p.x - fountainX)**2 + (p.y - fountainY)**2) < 200) {
       p.hp = Math.min(p.maxHp, p.hp + (p.maxHp * 0.25 / 60));
     }
 
-    // E 스킬 (심판) 데미지 및 이동속도 1.3배
     if (p.isEActive) {
       if (now - p.eStartTime >= 3000) p.isEActive = false;
       else {
@@ -926,7 +923,7 @@ setInterval(() => {
           const target = players[tId];
           if (target.team === p.team || target.isDead) continue;
 
-          if (Math.sqrt((target.x - p.x)**2 + (target.y - p.y)**2) <= 40) {
+          if (Math.sqrt((target.x - p.x)**2 + (target.y - p.y)**2) <= 60) {
             target.hp = Math.max(0, target.hp - p.eDamageLevel);
             if (target.hp === 0) {
               target.isDead = true;
@@ -945,7 +942,6 @@ setInterval(() => {
       if (p.attackProgress >= 1) { p.isAttacking = false; p.attackProgress = 0; }
     }
 
-    // 기본 이동 속도 정상화 (0.35)
     let currentSpeed = 0.35;
     if (p.hasSpeedBuff) currentSpeed *= 1.35;
     if (p.isEActive) currentSpeed *= 1.3;
