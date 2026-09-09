@@ -679,26 +679,27 @@ app.get('/', (req, res) => {
             ctx.fill();
 
             if (p.isEActive) {
-              // E스킬 회전 및 황금빛 잔상 효과
+              // E스킬 회전 연산
               const elapsed = Date.now() - p.eStartTime;
               const spins = (elapsed / 3000) * (7 * Math.PI * 2);
               
               ctx.save();
               ctx.rotate(spins);
 
-              // 황금빛 잔상 궤적
-              ctx.fillStyle = 'rgba(255, 226, 104, 0.35)';
-              ctx.shadowColor = '#FFE200';
-              ctx.shadowBlur = 12;
-              ctx.beginPath();
-              ctx.arc(0, 0, 22, 0, Math.PI * 2);
-              ctx.fill();
-
-              // 수평으로 잡은 검
+              // 검 길이에만 맞춰 남아있는 황금빛 궤적/잔상 (호 형태)
               ctx.save();
-              ctx.translate(0, 0);
-              renderSword(ctx, true);
+              ctx.shadowColor = '#FFE200';
+              ctx.shadowBlur = 10;
+              ctx.strokeStyle = 'rgba(255, 226, 104, 0.6)';
+              ctx.lineWidth = 4;
+              ctx.beginPath();
+              // 검의 날 부분 시작점(7.2)부터 끝점(16)까지의 범위에 잔상 궤적 형성
+              ctx.arc(0, 0, 12, -0.8, 0.2);
+              ctx.stroke();
               ctx.restore();
+
+              // 실제 칼 그리기
+              renderSword(ctx, true);
 
               ctx.restore();
             } else {
@@ -986,7 +987,7 @@ io.on('connection', (socket) => {
     isEActive: false,
     eStartTime: 0,
     eHitCount: {},
-    eDamageLevel: 4, // 1레벨 기준 틱당 4 데미지
+    eDamageLevel: 4,
 
     isArmorDebuffed: false,
     armorDebuffEndTime: 0,
@@ -1088,7 +1089,7 @@ io.on('connection', (socket) => {
 
         if (dist <= 35) {
           let totalArmor = target.armor + target.wBonusStats;
-          if (target.isArmorDebuffed) totalArmor *= 0.75; // 방어력 25% 감소
+          if (target.isArmorDebuffed) totalArmor *= 0.75;
 
           let incomingDamage = Math.max(1, damage - totalArmor);
 
@@ -1207,17 +1208,14 @@ setInterval(() => {
       continue;
     }
 
-    // 방어력 감소 디버프 지속시간 처리
     if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
       p.isArmorDebuffed = false;
     }
 
-    // E 스킬 도는 중 연산 (3초간)
     if (p.isEActive) {
       if (now - p.eStartTime >= 3000) {
         p.isEActive = false;
       } else {
-        // E스킬 타격 범위 내 적 검색 (범위 radius 40)
         let targetsInRange = [];
         for (let tId in players) {
           if (tId === id) continue;
@@ -1234,14 +1232,12 @@ setInterval(() => {
         }
 
         if (targetsInRange.length > 0) {
-          // 거리 순 정렬
           targetsInRange.sort((a, b) => a.dist - b.dist);
           const closestTargetId = targetsInRange[0].id;
 
           targetsInRange.forEach(({ id: tId, target }) => {
-            let baseDamage = p.eDamageLevel; // 틱당 기본 피해 (4/8/12/16/20)
+            let baseDamage = p.eDamageLevel;
             
-            // 가장 가까운 대상 25% 추가 피해
             if (tId === closestTargetId) {
               baseDamage *= 1.25;
             }
@@ -1266,10 +1262,8 @@ setInterval(() => {
             if (incomingDamage > 0) {
               target.hp = Math.max(0, target.hp - incomingDamage);
               
-              // E스킬 타격 스택 누적
               p.eHitCount[tId] = (p.eHitCount[tId] || 0) + 1;
               
-              // 6번 이상 피격 시 6초간 방어력 25% 감소
               if (p.eHitCount[tId] >= 6) {
                 target.isArmorDebuffed = true;
                 target.armorDebuffEndTime = now + 6000;
