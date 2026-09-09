@@ -13,7 +13,6 @@ app.use(express.static(path.join(__dirname)));
 const MAP_SIZE = 2000;
 let players = {};
 
-// === 넥서스 객체 추가 (체력 4000) ===
 let nexuses = {
   blue: { x: 225, y: 1766, radius: 35, hp: 4000, maxHp: 4000 },
   red: { x: 1786, y: 223, radius: 35, hp: 4000, maxHp: 4000 }
@@ -500,7 +499,6 @@ app.get('/', (req, res) => {
               e.preventDefault();
               socket.emit('useE');
             }
-            // B 키 귀환 요청
             if (e.key === 'b' || e.key === 'B' || e.key === 'ㅠ') {
               e.preventDefault();
               socket.emit('startRecall');
@@ -591,7 +589,8 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
+              // === 이동 속도 원래대로 복구 (기본: 180, 버프: 245) ===
+              const baseSpeed = cp.hasSpeedBuff ? 245 : 180; 
 
               if (!cp.isEActive) {
                 if (cp.dirX < 0 && cp.dirY < 0) {
@@ -880,7 +879,8 @@ app.get('/', (req, res) => {
               camY = me.renderY;
             }
 
-            const scale = (canvas.height / 500);
+            // === 시야 범위(줌 레벨) 원래대로 복구 (기본: 1.0) ===
+            const scale = (canvas.height / 500) * 1.0;
 
             ctx.save();
             ctx.scale(scale, scale);
@@ -1218,7 +1218,8 @@ setInterval(() => {
       p.hasDamageReducePhase = false;
     }
 
-    const baseSpeed = p.hasSpeedBuff ? 4.968 : 3.68;
+    // === 서버 이동 처리 속도 복구 (기본: 3.0, 버프: 4.1) ===
+    const baseSpeed = p.hasSpeedBuff ? 4.1 : 3.0;
     if (p.dirX !== 0 || p.dirY !== 0) {
       let mx = p.dirX, my = p.dirY;
       if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
