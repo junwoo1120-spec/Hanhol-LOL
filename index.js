@@ -29,6 +29,13 @@ const NEXUS_RADIUS = 35;
 const INHIBITOR_RADIUS = 25;
 const TURRET_RADIUS = 22;
 
+const FOUNTAIN_RADIUS = 130;
+const FOUNTAIN_HEAL_PERCENT_PER_SEC = 0.2;
+const FOUNTAIN_POS = {
+  blue: { x: 100, y: 1900 },
+  red: { x: 1900, y: 100 }
+};
+
 const colliders = [
   // === 블루팀 ===
   { x: 225, y: 1766, radius: NEXUS_RADIUS },
@@ -1040,10 +1047,21 @@ io.on('connection', (socket) => {
   });
 
   socket.on('keyMove', (dir) => {
-    if (players[socket.id] && !players[socket.id].isDead) {
-      players[socket.id].dirX = dir.x;
-      players[socket.id].dirY = dir.y;
+    const p = players[socket.id];
+    if (!p || p.isDead) return;
+
+    if (p.isRecalling) {
+      // 실제 이동 입력이 들어오면 귀환 취소, 그 외(키를 뗀 경우 등)는 무시하고 귀환 유지
+      if (dir.x !== 0 || dir.y !== 0) {
+        p.isRecalling = false;
+        p.dirX = dir.x;
+        p.dirY = dir.y;
+      }
+      return;
     }
+
+    p.dirX = dir.x;
+    p.dirY = dir.y;
   });
 
   socket.on('useQ', () => {
@@ -1143,6 +1161,11 @@ io.on('connection', (socket) => {
 
           if (incomingDamage > 0) {
             target.hp = Math.max(0, target.hp - incomingDamage);
+
+            // 공격을 맞으면 귀환 취소
+            if (target.isRecalling) {
+              target.isRecalling = false;
+            }
             
             if (target.hp === 0) {
               target.isDead = true;
@@ -1307,6 +1330,11 @@ setInterval(() => {
 
             if (incomingDamage > 0) {
               target.hp = Math.max(0, target.hp - incomingDamage);
+
+              // 공격을 맞으면 귀환 취소
+              if (target.isRecalling) {
+                target.isRecalling = false;
+              }
               
               p.eHitCount[tId] = (p.eHitCount[tId] || 0) + 1;
               
@@ -1341,6 +1369,17 @@ setInterval(() => {
       p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
     }
 
+    // 우물(스폰) 반경 내에 있으면 초당 최대체력의 20% 추가 회복
+    const fountain = FOUNTAIN_POS[p.team];
+    if (fountain) {
+      const fdx = p.x - fountain.x;
+      const fdy = p.y - fountain.y;
+      const fdist = Math.sqrt(fdx * fdx + fdy * fdy);
+      if (fdist <= FOUNTAIN_RADIUS && p.hp < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp + (p.maxHp * FOUNTAIN_HEAL_PERCENT_PER_SEC) / 60);
+      }
+    }
+
     if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
     if (p.hasSpeedBuff && now >= p.speedBuffEndTime) p.hasSpeedBuff = false;
 
@@ -1364,18 +1403,20 @@ setInterval(() => {
       }
     }
 
-    const currentSpeed = p.hasSpeedBuff ? 0.6133 * 1.35 : 0.6133;
+    if (!p.isRecalling) {
+      const currentSpeed = p.hasSpeedBuff ? 0.6133 * 1.35 : 0.6133;
 
-    let moveX = p.dirX, moveY = p.dirY;
-    if (moveX !== 0 && moveY !== 0) {
-      moveX *= 0.7071; moveY *= 0.7071;
+      let moveX = p.dirX, moveY = p.dirY;
+      if (moveX !== 0 && moveY !== 0) {
+        moveX *= 0.7071; moveY *= 0.7071;
+      }
+
+      const nextX = p.x + moveX * currentSpeed;
+      const nextY = p.y + moveY * currentSpeed;
+
+      if (nextX >= 10 && nextX <= MAP_SIZE - 10 && !isColliding(nextX, p.y)) p.x = nextX;
+      if (nextY >= 10 && nextY <= MAP_SIZE - 10 && !isColliding(p.x, nextY)) p.y = nextY;
     }
-
-    const nextX = p.x + moveX * currentSpeed;
-    const nextY = p.y + moveY * currentSpeed;
-
-    if (nextX >= 10 && nextX <= MAP_SIZE - 10 && !isColliding(nextX, p.y)) p.x = nextX;
-    if (nextY >= 10 && nextY <= MAP_SIZE - 10 && !isColliding(p.x, nextY)) p.y = nextY;
   }
   io.emit('gameState', { players });
 }, 1000 / 60);
