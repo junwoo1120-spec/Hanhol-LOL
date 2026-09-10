@@ -36,6 +36,10 @@ const FOUNTAIN_POS = {
   red: { x: 1900, y: 100 }
 };
 
+const R_RANGE = 600;
+const R_HALF_ANGLE = Math.PI / 3; // 바라보는 방향 기준 좌우 60도(총 120도)
+const R_IMPACT_DELAY = 900; // ms, 시전 후 실제 데미지가 들어가기까지 시간
+
 const colliders = [
   // === 블루팀 ===
   { x: 225, y: 1766, radius: NEXUS_RADIUS },
@@ -306,6 +310,7 @@ app.get('/', (req, res) => {
           <div class="skill-slot" id="slot-r">
             <span class="skill-key">R</span>
             <canvas class="skill-icon-canvas" id="icon-r" width="48" height="48"></canvas>
+            <div class="cooldown-overlay" id="cd-r" style="display:none;">0</div>
           </div>
         </div>
       </div>
@@ -503,6 +508,10 @@ app.get('/', (req, res) => {
               e.preventDefault();
               socket.emit('useE');
             }
+            if (e.key === 'r' || e.key === 'R' || e.key === 'ㄱ') {
+              e.preventDefault();
+              socket.emit('useR');
+            }
             if (e.key === 'b' || e.key === 'B' || e.key === 'ㅠ') {
               e.preventDefault();
               socket.emit('recall');
@@ -554,6 +563,8 @@ app.get('/', (req, res) => {
                 clientPlayers[id].wCooldown = sp.wCooldown;
                 clientPlayers[id].lastETime = sp.lastETime;
                 clientPlayers[id].eCooldown = sp.eCooldown;
+                clientPlayers[id].lastRTime = sp.lastRTime;
+                clientPlayers[id].rCooldown = sp.rCooldown;
 
                 clientPlayers[id].hasQBuff = sp.hasQBuff;
                 clientPlayers[id].hasSpeedBuff = sp.hasSpeedBuff;
@@ -566,6 +577,10 @@ app.get('/', (req, res) => {
 
                 clientPlayers[id].isRecalling = sp.isRecalling;
                 clientPlayers[id].recallStartTime = sp.recallStartTime;
+
+                clientPlayers[id].isRMarked = sp.isRMarked;
+                clientPlayers[id].rMarkStartTime = sp.rMarkStartTime;
+                clientPlayers[id].rImpactTime = sp.rImpactTime;
               }
             }
 
@@ -592,7 +607,9 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              const baseSpeed = cp.hasSpeedBuff ? 49.68 : 36.8; 
+              let baseSpeed = 36.8;
+              if (cp.hasSpeedBuff) baseSpeed *= 1.35;
+              if (cp.isEActive) baseSpeed *= 1.3;
 
               if (!cp.isEActive) {
                 if (cp.dirX < 0 && cp.dirY < 0) {
@@ -756,6 +773,19 @@ app.get('/', (req, res) => {
             }
           }
 
+          function drawRMarker(ctx, p) {
+            if (!p.isRMarked) return;
+
+            ctx.save();
+            ctx.translate(p.renderX, p.renderY - 16);
+            ctx.scale(2.5, 2.5);
+            ctx.rotate(100 * Math.PI / 180);
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 14;
+            renderSword(ctx, true);
+            ctx.restore();
+          }
+
           function drawGarenPortrait(ctx) {
             ctx.clearRect(0, 0, 64, 64);
             ctx.fillStyle = '#0a0f14';
@@ -850,6 +880,11 @@ app.get('/', (req, res) => {
             const eRemaining = Math.max(0, Math.ceil(((me.lastETime + me.eCooldown) - now) / 1000));
             eCdBox.style.display = eRemaining > 0 ? 'flex' : 'none';
             if (eRemaining > 0) eCdBox.innerText = eRemaining;
+
+            const rCdBox = document.getElementById('cd-r');
+            const rRemaining = Math.max(0, Math.ceil(((me.lastRTime + me.rCooldown) - now) / 1000));
+            rCdBox.style.display = rRemaining > 0 ? 'flex' : 'none';
+            if (rRemaining > 0) rCdBox.innerText = rRemaining;
           }
 
           function drawGame() {
@@ -882,6 +917,8 @@ app.get('/', (req, res) => {
               drawSimpleGaren(ctx, p);
 
               ctx.restore();
+
+              drawRMarker(ctx, p);
 
               const barWidth = 14;
               const barHeight = 2;
@@ -989,6 +1026,8 @@ io.on('connection', (socket) => {
     y: spawnY, 
     dirX: 0, 
     dirY: 0,
+    facingX: team === 'blue' ? 1 : -1,
+    facingY: team === 'blue' ? -1 : 1,
     username: socket.username,
     team: team,
     isAttacking: false,
@@ -1020,6 +1059,14 @@ io.on('connection', (socket) => {
     eStartTime: 0,
     eHitCount: {},
     eDamageLevel: 3.8,
+
+    rCooldown: 140000,
+    lastRTime: 0,
+    isRMarked: false,
+    rMarkStartTime: 0,
+    rImpactTime: 0,
+    rCasterId: null,
+    rCasterUsername: null,
 
     isRecalling: false,
     recallStartTime: 0,
@@ -1056,12 +1103,18 @@ io.on('connection', (socket) => {
         p.isRecalling = false;
         p.dirX = dir.x;
         p.dirY = dir.y;
+        p.facingX = dir.x;
+        p.facingY = dir.y;
       }
       return;
     }
 
     p.dirX = dir.x;
     p.dirY = dir.y;
+    if (dir.x !== 0 || dir.y !== 0) {
+      p.facingX = dir.x;
+      p.facingY = dir.y;
+    }
   });
 
   socket.on('useQ', () => {
@@ -1108,6 +1161,51 @@ io.on('connection', (socket) => {
     p.isEActive = true;
     p.eStartTime = now;
     p.eHitCount = {};
+  });
+
+  socket.on('useR', () => {
+    const caster = players[socket.id];
+    if (!caster || caster.isDead) return;
+
+    const now = Date.now();
+    if (now - caster.lastRTime < caster.rCooldown) return;
+
+    let fx = caster.facingX, fy = caster.facingY;
+    const fLen = Math.sqrt(fx * fx + fy * fy) || 1;
+    fx /= fLen; fy /= fLen;
+
+    let candidates = [];
+    for (let tid in players) {
+      if (tid === socket.id) continue;
+      const target = players[tid];
+      if (target.team === caster.team || target.isDead) continue;
+
+      const dx = target.x - caster.x;
+      const dy = target.y - caster.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist === 0 || dist > R_RANGE) continue;
+
+      const ndx = dx / dist, ndy = dy / dist;
+      const dot = Math.max(-1, Math.min(1, fx * ndx + fy * ndy));
+      const angle = Math.acos(dot);
+
+      if (angle <= R_HALF_ANGLE) {
+        candidates.push({ id: tid, target, dist });
+      }
+    }
+
+    if (candidates.length === 0) return;
+
+    candidates.sort((a, b) => a.dist - b.dist);
+    const chosen = candidates[0].target;
+
+    caster.lastRTime = now;
+
+    chosen.isRMarked = true;
+    chosen.rMarkStartTime = now;
+    chosen.rImpactTime = now + R_IMPACT_DELAY;
+    chosen.rCasterId = socket.id;
+    chosen.rCasterUsername = caster.username;
   });
 
   socket.on('recall', () => {
@@ -1263,6 +1361,9 @@ setInterval(() => {
         p.y = p.team === 'blue' ? 1900 : 100;
         p.dirX = 0;
         p.dirY = 0;
+        p.isRMarked = false;
+        p.rCasterId = null;
+        p.rCasterUsername = null;
       }
       continue;
     }
@@ -1365,6 +1466,53 @@ setInterval(() => {
       }
     }
 
+    // R스킬(궁극기) 판정 시각(rImpactTime) 도달 시 데미지 적용
+    if (p.isRMarked && now >= p.rImpactTime) {
+      p.isRMarked = false;
+
+      const hpPercent = p.hp / p.maxHp;
+
+      if (hpPercent <= 0.3) {
+        p.hp = 0;
+      } else {
+        p.hp = Math.max(0, p.hp - p.maxHp * 0.15);
+      }
+
+      if (p.isRecalling) {
+        p.isRecalling = false;
+      }
+
+      if (p.hp === 0) {
+        p.isDead = true;
+        p.respawnTime = now + 10000;
+        p.hasQBuff = false;
+        p.hasSpeedBuff = false;
+        p.hasShieldPhase = false;
+        p.hasDamageReducePhase = false;
+        p.isEActive = false;
+        p.shield = 0;
+
+        const caster = players[p.rCasterId];
+        if (caster && caster.wBonusStats < 30) {
+          caster.wBonusStats = Math.min(30, caster.wBonusStats + 0.2);
+        }
+
+        io.emit('chatMessage', {
+          username: '시스템',
+          text: `${p.rCasterUsername || '알 수 없음'}님이 궁극기로 ${p.username}님을 처치했습니다!`,
+          isSystem: true,
+          targetMode: 'all'
+        });
+
+        p.rCasterId = null;
+        p.rCasterUsername = null;
+        continue; // 사망 처리 이후 이번 틱의 나머지 로직(회복, 이동 등) 건너뛰기
+      }
+
+      p.rCasterId = null;
+      p.rCasterUsername = null;
+    }
+
     if (p.hp < p.maxHp) {
       p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
     }
@@ -1404,7 +1552,9 @@ setInterval(() => {
     }
 
     if (!p.isRecalling) {
-      const currentSpeed = p.hasSpeedBuff ? 0.6133 * 1.35 : 0.6133;
+      let currentSpeed = 0.6133;
+      if (p.hasSpeedBuff) currentSpeed *= 1.35;
+      if (p.isEActive) currentSpeed *= 1.3;
 
       let moveX = p.dirX, moveY = p.dirY;
       if (moveX !== 0 && moveY !== 0) {
