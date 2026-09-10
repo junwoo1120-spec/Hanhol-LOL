@@ -36,9 +36,18 @@ const FOUNTAIN_POS = {
   red: { x: 1900, y: 100 }
 };
 
-const R_RANGE = 600;
+const R_RANGE = 190; // 화면(4배 줌 기준)에 보이는 정도의 사거리
 const R_HALF_ANGLE = Math.PI / 3; // 바라보는 방향 기준 좌우 60도(총 120도)
 const R_IMPACT_DELAY = 900; // ms, 시전 후 실제 데미지가 들어가기까지 시간
+
+const DEV_USERNAME = '박준우';
+
+function refundRCooldown(casterId) {
+  const caster = players[casterId];
+  if (caster) {
+    caster.lastRTime = 0; // 쿨타임 즉시 초기화 (재사용 가능)
+  }
+}
 
 const colliders = [
   // === 블루팀 ===
@@ -242,6 +251,22 @@ app.get('/', (req, res) => {
           background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center;
           align-items: center; color: #fff; font-size: 18px; font-weight: bold; z-index: 3;
         }
+
+        #dev-panel {
+          position: absolute; top: 12px; right: 15px; z-index: 6;
+          background: rgba(0, 0, 0, 0.8); border: 1px solid #ff2222; border-radius: 8px;
+          padding: 10px; display: none; flex-direction: column; gap: 6px;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+        }
+        #dev-panel .dev-title {
+          font-size: 11px; color: #ff6666; font-weight: bold; text-align: center; margin-bottom: 2px;
+        }
+        #dev-panel button {
+          background: #333; color: #fff; border: 1px solid #666; border-radius: 5px;
+          padding: 6px 10px; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap;
+        }
+        #dev-panel button:hover { background: #444; }
+        #dev-panel button.active { background: #cc2222; border-color: #ff4444; }
       </style>
     </head>
     <body>
@@ -287,6 +312,12 @@ app.get('/', (req, res) => {
         <canvas id="minimap" width="180" height="180"></canvas>
       </div>
 
+      <div id="dev-panel">
+        <div class="dev-title">🛠 개발자 테스트</div>
+        <button id="dev-reset-cd-btn" onclick="devResetCooldowns()">쿨타임 초기화</button>
+        <button id="dev-speed-btn" onclick="devToggleSpeedBoost()">이속 5배 (OFF)</button>
+      </div>
+
       <div id="hud-container">
         <div class="portrait-box">
           <canvas id="portrait-canvas" width="64" height="64"></canvas>
@@ -323,6 +354,7 @@ app.get('/', (req, res) => {
         let chatTargetMode = 'all';
         let isPlayerListExpanded = false;
         let isChatExpanded = true;
+        let devSpeedBoostLocal = false;
 
         function togglePlayerList() {
           isPlayerListExpanded = !isPlayerListExpanded;
@@ -344,6 +376,14 @@ app.get('/', (req, res) => {
           if (confirm(\`'\${targetName}' 님을 강퇴하시겠습니까?\`)) {
             socket.emit('kickPlayer', targetId);
           }
+        }
+
+        function devResetCooldowns() {
+          socket.emit('devResetCooldowns');
+        }
+
+        function devToggleSpeedBoost() {
+          socket.emit('devToggleSpeedBoost');
         }
 
         function updatePlayerListUI(playersData) {
@@ -386,6 +426,10 @@ app.get('/', (req, res) => {
           document.getElementById('chat-container').style.display = 'flex';
           document.getElementById('minimap-container').style.display = 'block';
           document.getElementById('hud-container').style.display = 'flex';
+
+          if (myUsername === '박준우') {
+            document.getElementById('dev-panel').style.display = 'flex';
+          }
           
           initGame(myUsername);
         }
@@ -581,11 +625,23 @@ app.get('/', (req, res) => {
                 clientPlayers[id].isRMarked = sp.isRMarked;
                 clientPlayers[id].rMarkStartTime = sp.rMarkStartTime;
                 clientPlayers[id].rImpactTime = sp.rImpactTime;
+
+                clientPlayers[id].devSpeedBoost = sp.devSpeedBoost;
               }
             }
 
             for (let id in clientPlayers) {
               if (!serverPlayers[id]) delete clientPlayers[id];
+            }
+
+            const me = serverPlayers[socket.id];
+            if (me) {
+              devSpeedBoostLocal = !!me.devSpeedBoost;
+              const speedBtn = document.getElementById('dev-speed-btn');
+              if (speedBtn) {
+                speedBtn.innerText = devSpeedBoostLocal ? '이속 5배 (ON)' : '이속 5배 (OFF)';
+                speedBtn.classList.toggle('active', devSpeedBoostLocal);
+              }
             }
           });
 
@@ -610,6 +666,7 @@ app.get('/', (req, res) => {
               let baseSpeed = 36.8;
               if (cp.hasSpeedBuff) baseSpeed *= 1.35;
               if (cp.isEActive) baseSpeed *= 1.3;
+              if (cp.devSpeedBoost) baseSpeed *= 5;
 
               if (!cp.isEActive) {
                 if (cp.dirX < 0 && cp.dirY < 0) {
@@ -707,6 +764,44 @@ app.get('/', (req, res) => {
             ctx.fill();
           }
 
+          // R스킬 전용: 오직 황금색 계열로만 이루어진 검 (다른 색 없음)
+          function renderGoldenSword(ctx) {
+            ctx.shadowColor = '#FFE200';
+            ctx.shadowBlur = 10;
+
+            ctx.fillStyle = '#B8860B';
+            ctx.fillRect(3, -0.6, 2.5, 1.2);
+
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(6, 0, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(6, -2.5); ctx.lineTo(7, 0); ctx.lineTo(6, 2.5); ctx.lineTo(5, 0);
+            ctx.fill();
+
+            ctx.fillStyle = '#FFC107';
+            ctx.fillRect(7.2, -1, 7, 2);
+
+            ctx.fillStyle = '#FFF176';
+            ctx.beginPath();
+            ctx.moveTo(7.2, -1.3);
+            ctx.lineTo(13.5, -1.3);
+            ctx.lineTo(16, 0);
+            ctx.lineTo(13.5, 1.3);
+            ctx.lineTo(7.2, 1.3);
+            ctx.fill();
+
+            ctx.fillStyle = '#FFFDE7';
+            ctx.fillRect(8, -0.7, 5.5, 1.4);
+
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(8.5, 0, 0.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
           function drawSimpleGaren(ctx, p) {
             if (p.isDead) return;
 
@@ -776,13 +871,43 @@ app.get('/', (req, res) => {
           function drawRMarker(ctx, p) {
             if (!p.isRMarked) return;
 
+            const now = Date.now();
+            const totalDuration = Math.max(1, p.rImpactTime - p.rMarkStartTime);
+            let progress = (now - p.rMarkStartTime) / totalDuration;
+            progress = Math.max(0, Math.min(1, progress));
+
+            const swordScale = 3.0;
+            const startTipGap = 150; // 칼끝이 아주 높은 곳에서 시작
+            const endTipGap = 13;    // 칼끝이 캐릭터 한 명 정도 높이까지만 하강
+
+            const tipGap = startTipGap + (endTipGap - startTipGap) * progress;
+
+            // 바닥의 황금빛 원형 글로우
             ctx.save();
-            ctx.translate(p.renderX, p.renderY - 16);
-            ctx.scale(2.5, 2.5);
-            ctx.rotate(100 * Math.PI / 180);
-            ctx.shadowColor = '#FFD700';
-            ctx.shadowBlur = 14;
-            renderSword(ctx, true);
+            ctx.translate(p.renderX, p.renderY);
+            const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 12);
+            grad.addColorStop(0, 'rgba(255, 246, 190, 0.95)');
+            grad.addColorStop(0.45, 'rgba(255, 215, 80, 0.65)');
+            grad.addColorStop(1, 'rgba(255, 200, 40, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(0, 0, 12, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            // 머리 위에서 수직으로 떨어지는 황금빛 검
+            // (칼끝의 세계 좌표를 직접 고정해서, 회전각과 무관하게 칼끝 높이를 정확히 제어)
+            ctx.save();
+            ctx.translate(p.renderX, p.renderY - tipGap);
+            ctx.rotate(Math.PI / 2); // 정확히 수직 (칼끝이 아래를 향함)
+            ctx.scale(swordScale, swordScale);
+            ctx.translate(-16, 0); // 검 끝(tip, 로컬좌표 x=16)이 위 기준점에 오도록 보정
+
+            ctx.shadowColor = '#FFF7B0';
+            ctx.shadowBlur = 22;
+            renderGoldenSword(ctx);
+            ctx.shadowBlur = 34;
+            renderGoldenSword(ctx);
             ctx.restore();
           }
 
@@ -1082,7 +1207,9 @@ io.on('connection', (socket) => {
     hasShieldPhase: false,
     shieldPhaseEndTime: 0,
     hasDamageReducePhase: false,
-    damageReducePhaseEndTime: 0
+    damageReducePhaseEndTime: 0,
+
+    devSpeedBoost: false
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
@@ -1194,6 +1321,7 @@ io.on('connection', (socket) => {
       }
     }
 
+    // 지정할 대상이 없으면 스킬이 나가지 않은 것으로 취급 (쿨타임 소모 없음)
     if (candidates.length === 0) return;
 
     candidates.sort((a, b) => a.dist - b.dist);
@@ -1214,6 +1342,23 @@ io.on('connection', (socket) => {
 
     p.isRecalling = true;
     p.recallStartTime = Date.now();
+  });
+
+  socket.on('devResetCooldowns', () => {
+    const p = players[socket.id];
+    if (!p || socket.username !== DEV_USERNAME) return;
+
+    p.lastQTime = 0;
+    p.lastWTime = 0;
+    p.lastETime = 0;
+    p.lastRTime = 0;
+  });
+
+  socket.on('devToggleSpeedBoost', () => {
+    const p = players[socket.id];
+    if (!p || socket.username !== DEV_USERNAME) return;
+
+    p.devSpeedBoost = !p.devSpeedBoost;
   });
 
   socket.on('attack', () => {
@@ -1335,10 +1480,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    if (players[socket.id]) {
+    const dc = players[socket.id];
+    if (dc) {
+      // 지정 대상이 접속을 끊으면 스킬을 못 쓴 것과 같으므로 시전자 쿨타임 환급
+      if (dc.isRMarked) {
+        refundRCooldown(dc.rCasterId);
+      }
+
       io.emit('chatMessage', {
         username: '시스템',
-        text: `${players[socket.id].username}님이 퇴장하셨습니다.`,
+        text: `${dc.username}님이 퇴장하셨습니다.`,
         isSystem: true,
         targetMode: 'all'
       });
@@ -1354,6 +1505,14 @@ setInterval(() => {
     const p = players[id];
 
     if (p.isDead) {
+      // 궁극기 판정 전에 다른 이유로 대상이 죽으면(스킬이 실패한 것으로 취급) 시전자 쿨타임 환급
+      if (p.isRMarked) {
+        refundRCooldown(p.rCasterId);
+        p.isRMarked = false;
+        p.rCasterId = null;
+        p.rCasterUsername = null;
+      }
+
       if (now >= p.respawnTime) {
         p.isDead = false;
         p.hp = p.maxHp;
@@ -1361,9 +1520,12 @@ setInterval(() => {
         p.y = p.team === 'blue' ? 1900 : 100;
         p.dirX = 0;
         p.dirY = 0;
-        p.isRMarked = false;
-        p.rCasterId = null;
-        p.rCasterUsername = null;
+
+        // 부활 시 모든 스킬 쿨타임 초기화
+        p.lastQTime = 0;
+        p.lastWTime = 0;
+        p.lastETime = 0;
+        p.lastRTime = 0;
       }
       continue;
     }
@@ -1555,6 +1717,7 @@ setInterval(() => {
       let currentSpeed = 0.6133;
       if (p.hasSpeedBuff) currentSpeed *= 1.35;
       if (p.isEActive) currentSpeed *= 1.3;
+      if (p.devSpeedBoost) currentSpeed *= 5;
 
       let moveX = p.dirX, moveY = p.dirY;
       if (moveX !== 0 && moveY !== 0) {
