@@ -36,16 +36,9 @@ const FOUNTAIN_POS = {
   red: { x: 1900, y: 100 }
 };
 
-const R_RANGE = 190; // 화면(4배 줌 기준)에 보이는 정도의 사거리
+const R_RANGE = 600;
 const R_HALF_ANGLE = Math.PI / 3; // 바라보는 방향 기준 좌우 60도(총 120도)
 const R_IMPACT_DELAY = 900; // ms, 시전 후 실제 데미지가 들어가기까지 시간
-
-function refundRCooldown(casterId) {
-  const caster = players[casterId];
-  if (caster) {
-    caster.lastRTime = 0; // 쿨타임 즉시 초기화 (재사용 가능)
-  }
-}
 
 const colliders = [
   // === 블루팀 ===
@@ -783,32 +776,12 @@ app.get('/', (req, res) => {
           function drawRMarker(ctx, p) {
             if (!p.isRMarked) return;
 
-            const swordScale = 3.0;
-            const hoverHeight = 44; // 사진 속 높이감에 맞춘 값
-
-            // 바닥의 황금빛 원형 글로우
             ctx.save();
-            ctx.translate(p.renderX, p.renderY);
-            const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, 12);
-            grad.addColorStop(0, 'rgba(255, 246, 190, 0.95)');
-            grad.addColorStop(0.45, 'rgba(255, 215, 80, 0.65)');
-            grad.addColorStop(1, 'rgba(255, 200, 40, 0)');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(0, 0, 12, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-
-            // 머리 위에서 내려오는 거대한 황금빛 검
-            ctx.save();
-            ctx.translate(p.renderX, p.renderY - hoverHeight);
-            ctx.scale(swordScale, swordScale);
+            ctx.translate(p.renderX, p.renderY - 16);
+            ctx.scale(2.5, 2.5);
             ctx.rotate(100 * Math.PI / 180);
-
-            ctx.shadowColor = '#FFF7B0';
-            ctx.shadowBlur = 22;
-            renderSword(ctx, true);
-            ctx.shadowBlur = 32;
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 14;
             renderSword(ctx, true);
             ctx.restore();
           }
@@ -1221,7 +1194,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    // 지정할 대상이 없으면 스킬이 나가지 않은 것으로 취급 (쿨타임 소모 없음)
     if (candidates.length === 0) return;
 
     candidates.sort((a, b) => a.dist - b.dist);
@@ -1363,16 +1335,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    const dc = players[socket.id];
-    if (dc) {
-      // 지정 대상이 접속을 끊으면 스킬을 못 쓴 것과 같으므로 시전자 쿨타임 환급
-      if (dc.isRMarked) {
-        refundRCooldown(dc.rCasterId);
-      }
-
+    if (players[socket.id]) {
       io.emit('chatMessage', {
         username: '시스템',
-        text: `${dc.username}님이 퇴장하셨습니다.`,
+        text: `${players[socket.id].username}님이 퇴장하셨습니다.`,
         isSystem: true,
         targetMode: 'all'
       });
@@ -1388,14 +1354,6 @@ setInterval(() => {
     const p = players[id];
 
     if (p.isDead) {
-      // 궁극기 판정 전에 다른 이유로 대상이 죽으면(스킬이 실패한 것으로 취급) 시전자 쿨타임 환급
-      if (p.isRMarked) {
-        refundRCooldown(p.rCasterId);
-        p.isRMarked = false;
-        p.rCasterId = null;
-        p.rCasterUsername = null;
-      }
-
       if (now >= p.respawnTime) {
         p.isDead = false;
         p.hp = p.maxHp;
@@ -1403,6 +1361,9 @@ setInterval(() => {
         p.y = p.team === 'blue' ? 1900 : 100;
         p.dirX = 0;
         p.dirY = 0;
+        p.isRMarked = false;
+        p.rCasterId = null;
+        p.rCasterUsername = null;
       }
       continue;
     }
