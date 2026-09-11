@@ -876,7 +876,7 @@ app.get('/', (req, res) => {
             let progress = (now - p.rMarkStartTime) / totalDuration;
             progress = Math.max(0, Math.min(1, progress));
 
-            const swordScale = 3.0;
+            const swordScale = 6.0;
             const startTipGap = 150; // 칼끝이 아주 높은 곳에서 시작
             const endTipGap = 13;    // 칼끝이 캐릭터 한 명 정도 높이까지만 하강
 
