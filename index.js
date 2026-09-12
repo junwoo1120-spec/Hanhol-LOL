@@ -40,6 +40,10 @@ const R_RANGE = 190; // 화면(4배 줌 기준)에 보이는 정도의 사거리
 const R_HALF_ANGLE = Math.PI / 3; // 바라보는 방향 기준 좌우 60도(총 120도)
 const R_IMPACT_DELAY = 900; // ms, 시전 후 실제 데미지가 들어가기까지 시간
 
+const PASSIVE_COMBAT_TIMEOUT = 15000; // 전투 이탈 판정 시간
+const PASSIVE_TICK_INTERVAL = 5000; // 패시브 회복 주기
+const PASSIVE_HEAL_PERCENT = 0.015; // 1틱당 회복량(최대체력 비율)
+
 const DEV_USERNAME = '박준우';
 
 function refundRCooldown(casterId) {
@@ -225,7 +229,7 @@ app.get('/', (req, res) => {
 
         #hud-container {
           position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-          display: none; align-items: flex-end; gap: 10px; z-index: 6;
+          display: none; align-items: flex-start; gap: 10px; z-index: 6;
           background: rgba(10, 15, 20, 0.85); border: 2px solid #5b4622;
           padding: 8px 16px; border-radius: 12px; box-shadow: 0 0 15px rgba(0,0,0,0.8);
         }
@@ -236,14 +240,17 @@ app.get('/', (req, res) => {
         }
         .portrait-box canvas { width: 100%; height: 100%; }
 
-        .skills-container { display: flex; gap: 8px; align-items: center; }
+        .skills-container { display: flex; gap: 8px; align-items: flex-start; }
+        .skill-slot-wrap {
+          display: flex; flex-direction: column; align-items: center; gap: 3px;
+        }
         .skill-slot {
           position: relative; width: 48px; height: 48px; background: #1e2328;
-          border: 2px solid #5b4622; border-radius: 6px; display: flex;
+          border: 2px solid #4a8fc2; border-radius: 6px; display: flex;
           justify-content: center; align-items: center; font-weight: bold; overflow: hidden;
         }
-        .skill-key {
-          position: absolute; top: 2px; left: 4px; font-size: 10px; color: #c8aa6e; text-shadow: 1px 1px 2px #000; z-index: 2;
+        .skill-label {
+          font-size: 11px; font-weight: bold; color: #ff9d2f; text-shadow: 1px 1px 2px #000;
         }
         .skill-icon-canvas { width: 100%; height: 100%; display: block; }
         .cooldown-overlay {
@@ -323,25 +330,39 @@ app.get('/', (req, res) => {
           <canvas id="portrait-canvas" width="64" height="64"></canvas>
         </div>
         <div class="skills-container">
-          <div class="skill-slot" id="slot-q">
-            <span class="skill-key">Q</span>
-            <canvas class="skill-icon-canvas" id="icon-q" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-q" style="display:none;">0</div>
+          <div class="skill-slot-wrap">
+            <div class="skill-slot" id="slot-passive">
+              <canvas class="skill-icon-canvas" id="icon-passive" width="48" height="48"></canvas>
+            </div>
+            <div class="skill-label">패시브</div>
           </div>
-          <div class="skill-slot" id="slot-w">
-            <span class="skill-key">W</span>
-            <canvas class="skill-icon-canvas" id="icon-w" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-w" style="display:none;">0</div>
+          <div class="skill-slot-wrap">
+            <div class="skill-slot" id="slot-q">
+              <canvas class="skill-icon-canvas" id="icon-q" width="48" height="48"></canvas>
+              <div class="cooldown-overlay" id="cd-q" style="display:none;">0</div>
+            </div>
+            <div class="skill-label">Q</div>
           </div>
-          <div class="skill-slot" id="slot-e">
-            <span class="skill-key">E</span>
-            <canvas class="skill-icon-canvas" id="icon-e" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-e" style="display:none;">0</div>
+          <div class="skill-slot-wrap">
+            <div class="skill-slot" id="slot-w">
+              <canvas class="skill-icon-canvas" id="icon-w" width="48" height="48"></canvas>
+              <div class="cooldown-overlay" id="cd-w" style="display:none;">0</div>
+            </div>
+            <div class="skill-label">W</div>
           </div>
-          <div class="skill-slot" id="slot-r">
-            <span class="skill-key">R</span>
-            <canvas class="skill-icon-canvas" id="icon-r" width="48" height="48"></canvas>
-            <div class="cooldown-overlay" id="cd-r" style="display:none;">0</div>
+          <div class="skill-slot-wrap">
+            <div class="skill-slot" id="slot-e">
+              <canvas class="skill-icon-canvas" id="icon-e" width="48" height="48"></canvas>
+              <div class="cooldown-overlay" id="cd-e" style="display:none;">0</div>
+            </div>
+            <div class="skill-label">E</div>
+          </div>
+          <div class="skill-slot-wrap">
+            <div class="skill-slot" id="slot-r">
+              <canvas class="skill-icon-canvas" id="icon-r" width="48" height="48"></canvas>
+              <div class="cooldown-overlay" id="cd-r" style="display:none;">0</div>
+            </div>
+            <div class="skill-label">R</div>
           </div>
         </div>
       </div>
@@ -499,6 +520,12 @@ app.get('/', (req, res) => {
           const recallTimer = document.getElementById('recall-timer');
 
           const MAP_SIZE = 2000;
+
+          const FOUNTAIN_RADIUS_CLIENT = 130;
+          const FOUNTAIN_POS_CLIENT = {
+            blue: { x: 100, y: 1900 },
+            red: { x: 1900, y: 100 }
+          };
 
           let dpr = window.devicePixelRatio || 1;
           function resizeCanvas() {
@@ -876,9 +903,9 @@ app.get('/', (req, res) => {
             let progress = (now - p.rMarkStartTime) / totalDuration;
             progress = Math.max(0, Math.min(1, progress));
 
-            const swordScale = 6.0;
+            const swordScale = 6.9; // 기존(3배) 대비 2.3배
             const startTipGap = 150; // 칼끝이 아주 높은 곳에서 시작
-            const endTipGap = 13;    // 칼끝이 캐릭터 한 명 정도 높이까지만 하강
+            const endTipGap = 9;     // 기존(13)보다 30% 더 내려온 높이에서 정지
 
             const tipGap = startTipGap + (endTipGap - startTipGap) * progress;
 
@@ -908,6 +935,27 @@ app.get('/', (req, res) => {
             renderGoldenSword(ctx);
             ctx.shadowBlur = 34;
             renderGoldenSword(ctx);
+            ctx.restore();
+          }
+
+          function drawFountainLaser(ctx, p) {
+            const enemyFountain = FOUNTAIN_POS_CLIENT[p.team === 'blue' ? 'red' : 'blue'];
+            if (!enemyFountain) return;
+
+            const edx = p.renderX - enemyFountain.x;
+            const edy = p.renderY - enemyFountain.y;
+            const edist = Math.sqrt(edx * edx + edy * edy);
+            if (edist > FOUNTAIN_RADIUS_CLIENT) return;
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 50, 50, 0.9)';
+            ctx.shadowColor = '#ff1111';
+            ctx.shadowBlur = 18;
+            ctx.lineWidth = 3.5;
+            ctx.beginPath();
+            ctx.moveTo(enemyFountain.x, enemyFountain.y);
+            ctx.lineTo(p.renderX, p.renderY);
+            ctx.stroke();
             ctx.restore();
           }
 
@@ -948,7 +996,46 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
+          function drawPassiveIcon(ctx) {
+            ctx.clearRect(0, 0, 48, 48);
+            ctx.fillStyle = '#0a3d2e';
+            ctx.fillRect(0, 0, 48, 48);
+
+            ctx.save();
+            ctx.translate(20, 30);
+
+            ctx.fillStyle = '#eafff2';
+            ctx.beginPath();
+            ctx.arc(0, -16, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(-7, -9);
+            ctx.lineTo(7, -9);
+            ctx.lineTo(9, 15);
+            ctx.lineTo(-9, 15);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#eafff2';
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(9, -20);
+            ctx.lineTo(15, 18);
+            ctx.stroke();
+
+            ctx.fillStyle = '#eafff2';
+            ctx.beginPath();
+            ctx.arc(9, -20, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+          }
+
           function drawSkillIcons() {
+            const passiveCanvas = document.getElementById('icon-passive');
+            drawPassiveIcon(passiveCanvas.getContext('2d'));
+
             const qCanvas = document.getElementById('icon-q');
             const qCtx = qCanvas.getContext('2d');
             qCtx.fillStyle = '#1c1917'; qCtx.fillRect(0, 0, 48, 48);
@@ -1032,6 +1119,8 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
               if (p.isDead) continue;
+
+              drawFountainLaser(ctx, p);
 
               ctx.save();
               ctx.translate(p.renderX, p.renderY);
@@ -1169,6 +1258,9 @@ io.on('connection', (socket) => {
     armor: 38,
     magicResist: 32,
     hpRegen: 8,
+
+    lastCombatTime: 0,
+    nextPassiveTickTime: 0,
 
     wBonusStats: 0,
 
@@ -1385,6 +1477,10 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist <= 35) {
+          // 전투 판정: 실제로 스치기만 해도 전투 중으로 취급 (가렌 패시브용)
+          p.lastCombatTime = now;
+          target.lastCombatTime = now;
+
           let totalArmor = target.armor + target.wBonusStats;
           if (target.isArmorDebuffed) totalArmor *= 0.75;
 
@@ -1530,6 +1626,35 @@ setInterval(() => {
       continue;
     }
 
+    // 상대 팀 우물에 들어가면 레이저에 즉시 전멸 (틱당 최대체력 100% 피해)
+    const enemyFountain = FOUNTAIN_POS[p.team === 'blue' ? 'red' : 'blue'];
+    if (enemyFountain) {
+      const edx = p.x - enemyFountain.x;
+      const edy = p.y - enemyFountain.y;
+      const edist = Math.sqrt(edx * edx + edy * edy);
+      if (edist <= FOUNTAIN_RADIUS) {
+        p.hp = 0;
+        p.isDead = true;
+        p.respawnTime = now + 10000;
+        p.isRecalling = false;
+        p.hasQBuff = false;
+        p.hasSpeedBuff = false;
+        p.hasShieldPhase = false;
+        p.hasDamageReducePhase = false;
+        p.isEActive = false;
+        p.shield = 0;
+
+        io.emit('chatMessage', {
+          username: '시스템',
+          text: `${p.username}님이 적의 우물에 들어가 전멸했습니다!`,
+          isSystem: true,
+          targetMode: 'all'
+        });
+
+        continue; // 사망 처리 후 이번 틱 나머지 로직 건너뛰기
+      }
+    }
+
     if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
       p.isArmorDebuffed = false;
     }
@@ -1568,6 +1693,10 @@ setInterval(() => {
           const closestTargetId = targetsInRange[0].id;
 
           targetsInRange.forEach(({ id: tId, target }) => {
+            // 전투 판정 (가렌 패시브용)
+            p.lastCombatTime = now;
+            target.lastCombatTime = now;
+
             let baseDamage = p.eDamageLevel;
             
             if (tId === closestTargetId) {
@@ -1632,6 +1761,10 @@ setInterval(() => {
     if (p.isRMarked && now >= p.rImpactTime) {
       p.isRMarked = false;
 
+      const rCaster = players[p.rCasterId];
+      p.lastCombatTime = now;
+      if (rCaster) rCaster.lastCombatTime = now;
+
       const hpPercent = p.hp / p.maxHp;
 
       if (hpPercent <= 0.3) {
@@ -1654,9 +1787,8 @@ setInterval(() => {
         p.isEActive = false;
         p.shield = 0;
 
-        const caster = players[p.rCasterId];
-        if (caster && caster.wBonusStats < 30) {
-          caster.wBonusStats = Math.min(30, caster.wBonusStats + 0.2);
+        if (rCaster && rCaster.wBonusStats < 30) {
+          rCaster.wBonusStats = Math.min(30, rCaster.wBonusStats + 0.2);
         }
 
         io.emit('chatMessage', {
@@ -1688,6 +1820,12 @@ setInterval(() => {
       if (fdist <= FOUNTAIN_RADIUS && p.hp < p.maxHp) {
         p.hp = Math.min(p.maxHp, p.hp + (p.maxHp * FOUNTAIN_HEAL_PERCENT_PER_SEC) / 60);
       }
+    }
+
+    // 가렌 패시브: 15초 동안 전투가 없으면, 이후 5초마다 최대체력의 1.5% 회복
+    if (now - p.lastCombatTime >= PASSIVE_COMBAT_TIMEOUT && now >= p.nextPassiveTickTime) {
+      p.hp = Math.min(p.maxHp, p.hp + p.maxHp * PASSIVE_HEAL_PERCENT);
+      p.nextPassiveTickTime = now + PASSIVE_TICK_INTERVAL;
     }
 
     if (p.hasQBuff && now >= p.qBuffEndTime) p.hasQBuff = false;
