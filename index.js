@@ -78,8 +78,22 @@ const CHAMPION_BASE_STATS = {
   }
 };
 
-const LUX_PROJECTILE_SPEED = 240; // 유닛/초
+const LUX_PROJECTILE_SPEED = 240; // 유닛/초 (평타)
 const LUX_PROJECTILE_HIT_RADIUS = 6;
+
+// 럭스 Q(빛의 속박) - 사거리는 실제 1175 * 0.2 환산, 쿨타임은 스펙 미지정이라 임의로 10초 설정
+const LUX_Q_MANA_COST = 50;
+const LUX_Q_DAMAGE = 80;
+const LUX_Q_RANGE = 235;
+const LUX_Q_PROJECTILE_SPEED = 260;
+const LUX_Q_HIT_RADIUS = 8;
+const LUX_Q_COOLDOWN = 10000;
+const LUX_Q_ROOT_DURATION = 2000;
+const LUX_Q_MAX_TARGETS = 2;
+
+// 럭스 패시브(광채) - 레벨 시스템이 없어 레벨 비례 대신 고정 추가피해로 대체
+const LUX_PASSIVE_MARK_DURATION = 6000;
+const LUX_PASSIVE_BONUS_DAMAGE = 20;
 
 function refundRCooldown(casterId) {
   const caster = players[casterId];
@@ -714,6 +728,9 @@ app.get('/', (req, res) => {
                 clientPlayers[id].rMarkStartTime = sp.rMarkStartTime;
                 clientPlayers[id].rImpactTime = sp.rImpactTime;
 
+                clientPlayers[id].isLuxMarked = sp.isLuxMarked;
+                clientPlayers[id].isRooted = sp.isRooted;
+
                 clientPlayers[id].devSpeedBoost = sp.devSpeedBoost;
               }
             }
@@ -755,6 +772,7 @@ app.get('/', (req, res) => {
               if (cp.hasSpeedBuff) baseSpeed *= 1.35;
               if (cp.isEActive) baseSpeed *= 1.3;
               if (cp.devSpeedBoost) baseSpeed *= 5;
+              if (cp.isRooted) baseSpeed = 0;
 
               if (!cp.isEActive) {
                 if (cp.dirX < 0 && cp.dirY < 0) {
@@ -776,7 +794,7 @@ app.get('/', (req, res) => {
                 }
               }
 
-              if (cp.dirX !== 0 || cp.dirY !== 0) {
+              if ((cp.dirX !== 0 || cp.dirY !== 0) && baseSpeed > 0) {
                 let mx = cp.dirX, my = cp.dirY;
                 if (mx !== 0 && my !== 0) { mx *= 0.7071; my *= 0.7071; }
                 cp.renderX += mx * baseSpeed * dt;
@@ -1059,12 +1077,11 @@ app.get('/', (req, res) => {
             ctx.restore();
 
             // 머리 위에서 수직으로 떨어지는 황금빛 검
-            // (칼끝의 세계 좌표를 직접 고정해서, 회전각과 무관하게 칼끝 높이를 정확히 제어)
             ctx.save();
             ctx.translate(p.renderX, p.renderY - tipGap);
-            ctx.rotate(Math.PI / 2); // 정확히 수직 (칼끝이 아래를 향함)
+            ctx.rotate(Math.PI / 2);
             ctx.scale(swordScale, swordScale);
-            ctx.translate(-16, 0); // 검 끝(tip, 로컬좌표 x=16)이 위 기준점에 오도록 보정
+            ctx.translate(-16, 0);
 
             ctx.shadowColor = '#FFF7B0';
             ctx.shadowBlur = 22;
@@ -1092,6 +1109,52 @@ app.get('/', (req, res) => {
             ctx.moveTo(enemyFountain.x, enemyFountain.y);
             ctx.lineTo(p.renderX, p.renderY);
             ctx.stroke();
+            ctx.restore();
+          }
+
+          // 럭스 Q(속박) 적중 이펙트: 무지개색 궤도 + 떠오르는 파티클
+          function drawRootEffect(ctx, p) {
+            if (!p.isRooted) return;
+
+            const t = Date.now() / 1000;
+            const colors = ['#ff6ec7', '#ffd76e', '#8fffc0', '#6ec7ff', '#c78fff'];
+
+            ctx.save();
+            ctx.translate(p.renderX, p.renderY);
+
+            for (let ring = 0; ring < 2; ring++) {
+              const radius = 8 + ring * 3;
+              const rotSpeed = ring === 0 ? 2.2 : -1.6;
+              ctx.save();
+              ctx.rotate(t * rotSpeed);
+              for (let i = 0; i < colors.length; i++) {
+                const angle = (i / colors.length) * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius * 0.45;
+                ctx.fillStyle = colors[i];
+                ctx.shadowColor = colors[i];
+                ctx.shadowBlur = 6;
+                ctx.beginPath();
+                ctx.arc(x, y, 1.1, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.restore();
+            }
+
+            for (let i = 0; i < 4; i++) {
+              const phase = (t * 1.5 + i * 0.7) % 1;
+              const py = -phase * 14;
+              const alpha = 1 - phase;
+              ctx.globalAlpha = alpha;
+              ctx.fillStyle = colors[i % colors.length];
+              ctx.shadowColor = colors[i % colors.length];
+              ctx.shadowBlur = 6;
+              ctx.beginPath();
+              ctx.arc((i - 1.5) * 3, py - 6, 0.9, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
             ctx.restore();
           }
 
@@ -1229,7 +1292,7 @@ app.get('/', (req, res) => {
           }
 
           function drawLuxSkillIcons() {
-            // 패시브 - 빛의 축복 (금빛 반짝임)
+            // 패시브 - 광채 (금빛 반짝임)
             const passiveCanvas = document.getElementById('icon-passive');
             const passiveCtx = passiveCanvas.getContext('2d');
             passiveCtx.fillStyle = '#3a2a10'; passiveCtx.fillRect(0, 0, 48, 48);
@@ -1400,6 +1463,7 @@ app.get('/', (req, res) => {
               ctx.restore();
 
               drawRMarker(ctx, p);
+              drawRootEffect(ctx, p);
 
               const barWidth = 14;
               const barHeight = 2;
@@ -1427,6 +1491,13 @@ app.get('/', (req, res) => {
                 ctx.fillText('🛡️-25%', p.renderX, p.renderY + 8);
               }
 
+              // 럭스 표식 이펙트 표시
+              if (p.isLuxMarked) {
+                ctx.fillStyle = '#fff2a8';
+                ctx.font = 'bold 3.5px sans-serif';
+                ctx.fillText('✨', p.renderX + 6, p.renderY + 6);
+              }
+
               ctx.font = 'bold 4.5px sans-serif';
               ctx.textAlign = 'center';
               ctx.fillStyle = (p.team === 'blue') ? '#38bdf8' : '#f87171';
@@ -1440,12 +1511,27 @@ app.get('/', (req, res) => {
             for (let pid in serverProjectiles) {
               const proj = serverProjectiles[pid];
               ctx.save();
-              ctx.fillStyle = '#ff5fd1';
-              ctx.shadowColor = '#ff9bee';
-              ctx.shadowBlur = 10;
-              ctx.beginPath();
-              ctx.arc(proj.x, proj.y, 2.4, 0, Math.PI * 2);
-              ctx.fill();
+              if (proj.type === 'luxQ') {
+                const grad = ctx.createRadialGradient(proj.x - 1, proj.y - 1, 0, proj.x, proj.y, 4);
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.25, '#8fd9ff');
+                grad.addColorStop(0.5, '#c88fff');
+                grad.addColorStop(0.75, '#ff8fd9');
+                grad.addColorStop(1, '#ffe98f');
+                ctx.fillStyle = grad;
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 14;
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, 3.6, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.fillStyle = '#ff5fd1';
+                ctx.shadowColor = '#ff9bee';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, 2.4, 0, Math.PI * 2);
+                ctx.fill();
+              }
               ctx.restore();
             }
 
@@ -1556,7 +1642,7 @@ io.on('connection', (socket) => {
 
     wBonusStats: 0,
 
-    qCooldown: 8000,
+    qCooldown: champion === 'lux' ? LUX_Q_COOLDOWN : 8000,
     lastQTime: 0,
 
     wCooldown: 23000,
@@ -1576,6 +1662,13 @@ io.on('connection', (socket) => {
     rImpactTime: 0,
     rCasterId: null,
     rCasterUsername: null,
+
+    // 럭스 패시브(광채) / Q(속박) 상태
+    isLuxMarked: false,
+    luxMarkedBy: null,
+    luxMarkEndTime: 0,
+    isRooted: false,
+    rootEndTime: 0,
 
     isRecalling: false,
     recallStartTime: 0,
@@ -1629,12 +1722,45 @@ io.on('connection', (socket) => {
     }
   });
 
-  // === 아래 Q/W/E/R 스킬은 현재 가렌 전용으로 구현되어 있음 (럭스는 평타까지만 구현) ===
   socket.on('useQ', () => {
     const p = players[socket.id];
-    if (!p || p.isDead || p.champion !== 'garen') return;
+    if (!p || p.isDead) return;
 
     const now = Date.now();
+
+    if (p.champion === 'lux') {
+      if (now - p.lastQTime < p.qCooldown) return;
+      if (p.mana < LUX_Q_MANA_COST) return;
+
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+
+      p.lastQTime = now;
+      p.mana -= LUX_Q_MANA_COST;
+
+      const projId = 'proj_' + (projectileIdCounter++);
+      projectiles[projId] = {
+        id: projId,
+        type: 'luxQ',
+        ownerId: socket.id,
+        team: p.team,
+        x: p.x,
+        y: p.y,
+        dirX: dx,
+        dirY: dy,
+        speed: LUX_Q_PROJECTILE_SPEED,
+        damage: LUX_Q_DAMAGE,
+        maxDistance: LUX_Q_RANGE,
+        traveled: 0,
+        hitTargets: [],
+        hitCount: 0
+      };
+      return;
+    }
+
+    // 가렌 Q (기존 로직)
+    if (p.champion !== 'garen') return;
     if (now - p.lastQTime < p.qCooldown) return;
 
     p.lastQTime = now;
@@ -1765,6 +1891,7 @@ io.on('connection', (socket) => {
       const projId = 'proj_' + (projectileIdCounter++);
       projectiles[projId] = {
         id: projId,
+        type: 'luxAttack',
         ownerId: socket.id,
         team: p.team,
         x: p.x,
@@ -1915,7 +2042,7 @@ io.on('connection', (socket) => {
 setInterval(() => {
   const now = Date.now();
 
-  // === 투사체(럭스 평타) 이동 및 충돌 처리 ===
+  // === 투사체(럭스 평타 / Q) 이동 및 충돌 처리 ===
   for (let pid in projectiles) {
     const proj = projectiles[pid];
     const moveDist = proj.speed / 60;
@@ -1923,27 +2050,42 @@ setInterval(() => {
     proj.y += proj.dirY * moveDist;
     proj.traveled += moveDist;
 
-    let hit = false;
+    const isQ = proj.type === 'luxQ';
+    const hitRadius = isQ ? LUX_Q_HIT_RADIUS : LUX_PROJECTILE_HIT_RADIUS;
+
+    let destroyNow = false;
 
     for (let tid in players) {
       const target = players[tid];
       if (target.team === proj.team || target.isDead) continue;
+      if (isQ && proj.hitTargets.includes(tid)) continue;
 
       const tdx = target.x - proj.x;
       const tdy = target.y - proj.y;
       const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
 
-      if (tdist <= LUX_PROJECTILE_HIT_RADIUS) {
+      if (tdist <= hitRadius) {
         const owner = players[proj.ownerId];
         if (owner) owner.lastCombatTime = now;
         target.lastCombatTime = now;
 
-        let totalArmor = target.armor + target.wBonusStats;
-        if (target.isArmorDebuffed) totalArmor *= 0.75;
+        // 데미지 계산: 럭스 스킬(Q)은 마법 피해라 마법저항력 적용, 평타는 방어력 적용
+        let mitigation;
+        if (isQ) {
+          mitigation = target.magicResist;
+        } else {
+          mitigation = target.armor + target.wBonusStats;
+          if (target.isArmorDebuffed) mitigation *= 0.75;
+        }
 
-        let incomingDamage = Math.max(1, proj.damage - totalArmor);
-
+        let incomingDamage = Math.max(1, proj.damage - mitigation);
         if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+        // 럭스 패시브(광채): 표식이 있으면 추가 피해 + 표식 소모
+        if (target.isLuxMarked && target.luxMarkedBy === proj.ownerId) {
+          incomingDamage += LUX_PASSIVE_BONUS_DAMAGE;
+          target.isLuxMarked = false;
+        }
 
         if (target.shield > 0) {
           if (target.shield >= incomingDamage) {
@@ -1971,6 +2113,7 @@ setInterval(() => {
             target.hasDamageReducePhase = false;
             target.isEActive = false;
             target.shield = 0;
+            target.isRooted = false;
 
             if (owner) {
               if (owner.wBonusStats < 30) {
@@ -1986,12 +2129,28 @@ setInterval(() => {
           }
         }
 
-        hit = true;
+        // Q 전용: 속박 부여 + 표식(재)부여, 최대 2명까지 관통
+        if (isQ && !target.isDead) {
+          target.isRooted = true;
+          target.rootEndTime = now + LUX_Q_ROOT_DURATION;
+
+          target.isLuxMarked = true;
+          target.luxMarkedBy = proj.ownerId;
+          target.luxMarkEndTime = now + LUX_PASSIVE_MARK_DURATION;
+
+          proj.hitTargets.push(tid);
+          proj.hitCount++;
+
+          if (proj.hitCount >= LUX_Q_MAX_TARGETS) destroyNow = true;
+        } else {
+          destroyNow = true; // 평타는 한 명 맞으면 소멸
+        }
+
         break;
       }
     }
 
-    if (hit || proj.traveled >= proj.maxDistance || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
+    if (destroyNow || proj.traveled >= proj.maxDistance || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
       delete projectiles[pid];
     }
   }
@@ -2011,10 +2170,13 @@ setInterval(() => {
       if (now >= p.respawnTime) {
         p.isDead = false;
         p.hp = p.maxHp;
+        p.mana = p.maxMana;
         p.x = p.team === 'blue' ? 100 : 1900;
         p.y = p.team === 'blue' ? 1900 : 100;
         p.dirX = 0;
         p.dirY = 0;
+        p.isRooted = false;
+        p.isLuxMarked = false;
 
         // 부활 시 모든 스킬 쿨타임 초기화
         p.lastQTime = 0;
@@ -2042,6 +2204,7 @@ setInterval(() => {
         p.hasDamageReducePhase = false;
         p.isEActive = false;
         p.shield = 0;
+        p.isRooted = false;
 
         io.emit('chatMessage', {
           username: '시스템',
@@ -2056,6 +2219,14 @@ setInterval(() => {
 
     if (p.isArmorDebuffed && now >= p.armorDebuffEndTime) {
       p.isArmorDebuffed = false;
+    }
+
+    if (p.isLuxMarked && now >= p.luxMarkEndTime) {
+      p.isLuxMarked = false;
+    }
+
+    if (p.isRooted && now >= p.rootEndTime) {
+      p.isRooted = false;
     }
 
     if (p.isRecalling) {
@@ -2254,7 +2425,7 @@ setInterval(() => {
       }
     }
 
-    if (!p.isRecalling) {
+    if (!p.isRecalling && !p.isRooted) {
       let currentSpeed = p.baseMoveSpeed;
       if (p.hasSpeedBuff) currentSpeed *= 1.35;
       if (p.isEActive) currentSpeed *= 1.3;
