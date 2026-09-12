@@ -12,6 +12,8 @@ app.use(express.static(path.join(__dirname)));
 
 const MAP_SIZE = 2000;
 let players = {};
+let projectiles = {};
+let projectileIdCounter = 0;
 
 function getBalancedTeam() {
   let blueCount = 0;
@@ -45,6 +47,39 @@ const PASSIVE_TICK_INTERVAL = 5000; // 패시브 회복 주기
 const PASSIVE_HEAL_PERCENT = 0.015; // 1틱당 회복량(최대체력 비율)
 
 const DEV_USERNAME = '박준우';
+
+// === 챔피언별 기본 스탯 ===
+// 체력/공격력/방어력/마법저항력/재생 계열은 실제 수치를 그대로 사용.
+// 사거리·이동속도는 게임 내 좌표 스케일이 달라서, 가렌의 "실제 스탯 → 게임 내 적용값" 비율을 그대로 럭스에도 적용해서 환산함.
+//   사거리 비율: 35(가렌 게임 내 사거리) / 175(가렌 실제 사거리) = 0.2
+//   이동속도 비율: 36.8(가렌 초당 이동거리) / 340(가렌 실제 이동속도) ≈ 0.10824
+const CHAMPION_BASE_STATS = {
+  garen: {
+    hp: 680,
+    hpRegen: 8,
+    mana: 0,
+    manaRegen: 0,
+    attackDamage: 68,
+    armor: 38,
+    magicResist: 32,
+    attackRange: 35,           // 실제 175 (그대로 유지된 값)
+    baseMoveSpeed: 0.6133      // 실제 340 → 초당 36.8유닛(0.6133 * 60)
+  },
+  lux: {
+    hp: 580,
+    hpRegen: 5.5,
+    mana: 440,
+    manaRegen: 9,
+    attackDamage: 54,
+    armor: 21,
+    magicResist: 30,
+    attackRange: 110,          // 실제 550 * 0.2
+    baseMoveSpeed: 0.5953      // 실제 330 * 0.10824 / 60
+  }
+};
+
+const LUX_PROJECTILE_SPEED = 240; // 유닛/초
+const LUX_PROJECTILE_HIT_RADIUS = 6;
 
 function refundRCooldown(casterId) {
   const caster = players[casterId];
@@ -103,7 +138,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Summoner's Rift Classic - Custom Garen</title>
+      <title>Summoner's Rift Classic - Custom</title>
       <style>
         * { box-sizing: border-box; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: white; font-family: sans-serif; user-select: none; }
@@ -142,6 +177,14 @@ app.get('/', (req, res) => {
         }
         .auth-box button:hover { background: #0066cc; }
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
+
+        .champion-select-title { font-size: 12px; color: #aaa; margin-top: 10px; margin-bottom: 4px; text-align: left; }
+        .champion-select-row { display: flex; gap: 8px; }
+        .champ-btn {
+          flex: 1; padding: 10px 6px; border-radius: 6px; border: 2px solid #555;
+          background: #333; color: #fff; cursor: pointer; font-weight: bold; font-size: 13px;
+        }
+        .champ-btn.selected { background: #0088ff; border-color: #66c2ff; }
 
         #player-list-container {
           position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
@@ -285,6 +328,13 @@ app.get('/', (req, res) => {
           <h2>게스트 입장</h2>
           <div class="warning-text">※ 플레이에 사용할 닉네임을 입력해 주세요. (1회성)</div>
           <input type="text" id="username" placeholder="닉네임 입력 (한글 가능)" maxlength="12" />
+
+          <div class="champion-select-title">챔피언 선택</div>
+          <div class="champion-select-row">
+            <button type="button" class="champ-btn selected" id="champ-btn-garen" onclick="selectChampion('garen')">가렌</button>
+            <button type="button" class="champ-btn" id="champ-btn-lux" onclick="selectChampion('lux')">럭스</button>
+          </div>
+
           <button id="auth-btn" onclick="handleGuestLogin()">게임 시작</button>
         </div>
       </div>
@@ -371,11 +421,18 @@ app.get('/', (req, res) => {
       <script src="/socket.io/socket.io.js"></script>
       <script>
         let myUsername = '';
+        let selectedChampion = 'garen';
         let socket = null;
         let chatTargetMode = 'all';
         let isPlayerListExpanded = false;
         let isChatExpanded = true;
         let devSpeedBoostLocal = false;
+
+        function selectChampion(champ) {
+          selectedChampion = champ;
+          document.getElementById('champ-btn-garen').classList.toggle('selected', champ === 'garen');
+          document.getElementById('champ-btn-lux').classList.toggle('selected', champ === 'lux');
+        }
 
         function togglePlayerList() {
           isPlayerListExpanded = !isPlayerListExpanded;
@@ -420,7 +477,8 @@ app.get('/', (req, res) => {
             item.className = \`player-item \${p.team}\`;
             
             let nameSpan = document.createElement('span');
-            nameSpan.innerText = \`\${p.username} (\${p.team === 'blue' ? '블루' : '레드'})\`;
+            const champLabel = p.champion === 'lux' ? '럭스' : '가렌';
+            nameSpan.innerText = \`\${p.username} [\${champLabel}] (\${p.team === 'blue' ? '블루' : '레드'})\`;
             item.appendChild(nameSpan);
 
             if (myUsername === '박준우' && id !== socket.id) {
@@ -452,7 +510,7 @@ app.get('/', (req, res) => {
             document.getElementById('dev-panel').style.display = 'flex';
           }
           
-          initGame(myUsername);
+          initGame(myUsername, selectedChampion);
         }
 
         document.getElementById('username').addEventListener('keydown', (e) => {
@@ -502,8 +560,8 @@ app.get('/', (req, res) => {
           msgContainer.scrollTop = msgContainer.scrollHeight;
         }
 
-        function initGame(username) {
-          socket = io({ auth: { username } });
+        function initGame(username, champion) {
+          socket = io({ auth: { username, champion } });
           const canvas = document.getElementById('game');
           const ctx = canvas.getContext('2d');
 
@@ -541,10 +599,11 @@ app.get('/', (req, res) => {
 
           let serverPlayers = {};
           let clientPlayers = {};
+          let serverProjectiles = {};
           const keys = {};
           let camX = 1000, camY = 1000;
 
-          drawSkillIcons();
+          drawSkillIcons(champion);
 
           const chatInput = document.getElementById('chat-input');
           chatInput.addEventListener('keydown', (e) => {
@@ -607,6 +666,7 @@ app.get('/', (req, res) => {
 
           socket.on('gameState', (data) => { 
             serverPlayers = data.players; 
+            serverProjectiles = data.projectiles || {};
             updatePlayerListUI(serverPlayers);
 
             for (let id in serverPlayers) {
@@ -618,6 +678,7 @@ app.get('/', (req, res) => {
                 clientPlayers[id].y = sp.y;
                 clientPlayers[id].dirX = sp.dirX;
                 clientPlayers[id].dirY = sp.dirY;
+                clientPlayers[id].champion = sp.champion;
                 clientPlayers[id].isAttacking = sp.isAttacking;
                 clientPlayers[id].attackProgress = sp.attackProgress;
                 clientPlayers[id].username = sp.username;
@@ -690,7 +751,7 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              let baseSpeed = 36.8;
+              let baseSpeed = cp.champion === 'lux' ? 35.7 : 36.8;
               if (cp.hasSpeedBuff) baseSpeed *= 1.35;
               if (cp.isEActive) baseSpeed *= 1.3;
               if (cp.devSpeedBoost) baseSpeed *= 5;
@@ -829,6 +890,57 @@ app.get('/', (req, res) => {
             ctx.fill();
           }
 
+          // 럭스 전용: 지팡이 (갈색 손잡이 + 금색 포크 머리 + 청록 보석)
+          function renderWand(ctx) {
+            ctx.shadowColor = '#7fe8e8';
+            ctx.shadowBlur = 4;
+
+            ctx.fillStyle = '#8B5A2B';
+            ctx.fillRect(3, -1, 9, 2);
+
+            ctx.strokeStyle = '#6b4423';
+            ctx.lineWidth = 0.6;
+            for (let i = 0; i < 4; i++) {
+              ctx.beginPath();
+              ctx.moveTo(4.5 + i * 1.8, -1);
+              ctx.lineTo(5.5 + i * 1.8, 1);
+              ctx.stroke();
+            }
+
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 6;
+            ctx.fillStyle = '#E8C044';
+            ctx.beginPath();
+            ctx.moveTo(12.5, -3);
+            ctx.lineTo(16, -4.5);
+            ctx.lineTo(17, -2);
+            ctx.lineTo(14, -0.6);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(12.5, 3);
+            ctx.lineTo(16, 4.5);
+            ctx.lineTo(17, 2);
+            ctx.lineTo(14, 0.6);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#E8C044';
+            ctx.lineWidth = 1;
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.arc(14, 0, 2, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.shadowColor = '#7fe8e8';
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = '#5EEAEA';
+            ctx.beginPath();
+            ctx.arc(14, 0, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
           function drawSimpleGaren(ctx, p) {
             if (p.isDead) return;
 
@@ -891,6 +1003,30 @@ app.get('/', (req, res) => {
               }
 
               renderSword(ctx, p.hasQBuff);
+              ctx.restore();
+            }
+          }
+
+          function drawSimpleLux(ctx, p) {
+            if (p.isDead) return;
+
+            ctx.fillStyle = '#FFDA5E';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            renderWand(ctx);
+            ctx.restore();
+
+            if (p.isAttacking) {
+              ctx.save();
+              ctx.fillStyle = 'rgba(255, 110, 220, 0.9)';
+              ctx.shadowColor = '#ff6ee0';
+              ctx.shadowBlur = 10;
+              ctx.beginPath();
+              ctx.arc(15, 0, 2.5, 0, Math.PI * 2);
+              ctx.fill();
               ctx.restore();
             }
           }
@@ -996,6 +1132,28 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
+          function drawLuxPortrait(ctx) {
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.fillStyle = '#241a12';
+            ctx.fillRect(0, 0, 64, 64);
+
+            ctx.save();
+            ctx.translate(24, 40);
+
+            ctx.fillStyle = '#FFDA5E';
+            ctx.beginPath();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.rotate(-50 * (Math.PI / 180));
+            ctx.scale(1.7, 1.7);
+            renderWand(ctx);
+            ctx.restore();
+
+            ctx.restore();
+          }
+
           function drawPassiveIcon(ctx) {
             ctx.clearRect(0, 0, 48, 48);
             ctx.fillStyle = '#0a3d2e';
@@ -1032,7 +1190,7 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
-          function drawSkillIcons() {
+          function drawGarenSkillIcons() {
             const passiveCanvas = document.getElementById('icon-passive');
             drawPassiveIcon(passiveCanvas.getContext('2d'));
 
@@ -1070,11 +1228,116 @@ app.get('/', (req, res) => {
             rCtx.fillRect(22, 10, 4, 28);
           }
 
+          function drawLuxSkillIcons() {
+            // 패시브 - 빛의 축복 (금빛 반짝임)
+            const passiveCanvas = document.getElementById('icon-passive');
+            const passiveCtx = passiveCanvas.getContext('2d');
+            passiveCtx.fillStyle = '#3a2a10'; passiveCtx.fillRect(0, 0, 48, 48);
+            passiveCtx.save();
+            passiveCtx.translate(24, 24);
+            passiveCtx.shadowColor = '#FFD700'; passiveCtx.shadowBlur = 12;
+            passiveCtx.fillStyle = '#FFE066';
+            for (let i = 0; i < 8; i++) {
+              passiveCtx.save();
+              passiveCtx.rotate(i * Math.PI / 4);
+              passiveCtx.beginPath();
+              passiveCtx.moveTo(0, 0);
+              passiveCtx.lineTo(3, -14);
+              passiveCtx.lineTo(-3, -14);
+              passiveCtx.closePath();
+              passiveCtx.fill();
+              passiveCtx.restore();
+            }
+            passiveCtx.beginPath();
+            passiveCtx.arc(0, 0, 5, 0, Math.PI * 2);
+            passiveCtx.fillStyle = '#fff6d6';
+            passiveCtx.fill();
+            passiveCtx.restore();
+
+            // Q - 빛의 속박
+            const qCanvas = document.getElementById('icon-q');
+            const qCtx = qCanvas.getContext('2d');
+            qCtx.fillStyle = '#241a12'; qCtx.fillRect(0, 0, 48, 48);
+            qCtx.strokeStyle = '#e8c877'; qCtx.lineWidth = 3;
+            qCtx.shadowColor = '#FFD86B'; qCtx.shadowBlur = 8;
+            qCtx.beginPath();
+            qCtx.moveTo(8, 38);
+            qCtx.bezierCurveTo(20, 10, 28, 38, 40, 10);
+            qCtx.stroke();
+
+            // W - 프리즘 장벽
+            const wCanvas = document.getElementById('icon-w');
+            const wCtx = wCanvas.getContext('2d');
+            wCtx.fillStyle = '#0d2a4a'; wCtx.fillRect(0, 0, 48, 48);
+            wCtx.strokeStyle = '#6ec6ff'; wCtx.lineWidth = 3;
+            wCtx.shadowColor = '#6ec6ff'; wCtx.shadowBlur = 10;
+            wCtx.beginPath();
+            wCtx.ellipse(24, 24, 14, 8, -0.3, 0, Math.PI * 2);
+            wCtx.stroke();
+            wCtx.fillStyle = '#bfe6ff';
+            wCtx.beginPath();
+            wCtx.arc(36, 16, 2.5, 0, Math.PI * 2);
+            wCtx.fill();
+
+            // E - 빛의 특이점
+            const eCanvas = document.getElementById('icon-e');
+            const eCtx = eCanvas.getContext('2d');
+            eCtx.fillStyle = '#1a1030'; eCtx.fillRect(0, 0, 48, 48);
+            eCtx.save();
+            eCtx.translate(24, 24);
+            eCtx.shadowColor = '#FFF7B0'; eCtx.shadowBlur = 16;
+            eCtx.fillStyle = '#FFF7B0';
+            for (let i = 0; i < 6; i++) {
+              eCtx.save();
+              eCtx.rotate(i * Math.PI / 3);
+              eCtx.beginPath();
+              eCtx.moveTo(0, 0);
+              eCtx.lineTo(2, -16);
+              eCtx.lineTo(-2, -16);
+              eCtx.closePath();
+              eCtx.fill();
+              eCtx.restore();
+            }
+            eCtx.beginPath();
+            eCtx.arc(0, 0, 4, 0, Math.PI * 2);
+            eCtx.fillStyle = '#fff';
+            eCtx.fill();
+            eCtx.restore();
+
+            // R - 궁극의 섬광
+            const rCanvas = document.getElementById('icon-r');
+            const rCtx = rCanvas.getContext('2d');
+            rCtx.fillStyle = '#160e28'; rCtx.fillRect(0, 0, 48, 48);
+            const grad = rCtx.createLinearGradient(4, 44, 44, 4);
+            grad.addColorStop(0, '#ff5fd1');
+            grad.addColorStop(0.5, '#7ee8ff');
+            grad.addColorStop(1, '#fff36e');
+            rCtx.strokeStyle = grad;
+            rCtx.lineWidth = 4;
+            rCtx.shadowColor = '#b98bff'; rCtx.shadowBlur = 10;
+            rCtx.beginPath();
+            rCtx.moveTo(4, 44);
+            rCtx.lineTo(44, 4);
+            rCtx.stroke();
+          }
+
+          function drawSkillIcons(champion) {
+            if (champion === 'lux') {
+              drawLuxSkillIcons();
+            } else {
+              drawGarenSkillIcons();
+            }
+          }
+
           function drawHUD() {
             const me = clientPlayers[socket.id];
             if (!me) return;
 
-            drawGarenPortrait(portraitCtx);
+            if (me.champion === 'lux') {
+              drawLuxPortrait(portraitCtx);
+            } else {
+              drawGarenPortrait(portraitCtx);
+            }
 
             const now = Date.now();
 
@@ -1128,7 +1391,11 @@ app.get('/', (req, res) => {
               ctx.scale(1.3, 1.3);
               if (!p.isEActive) ctx.rotate(p.renderAngle);
 
-              drawSimpleGaren(ctx, p);
+              if (p.champion === 'lux') {
+                drawSimpleLux(ctx, p);
+              } else {
+                drawSimpleGaren(ctx, p);
+              }
 
               ctx.restore();
 
@@ -1169,6 +1436,19 @@ app.get('/', (req, res) => {
               ctx.strokeText(p.username, p.renderX, p.renderY - 13);
               ctx.fillText(p.username, p.renderX, p.renderY - 13);
             }
+
+            for (let pid in serverProjectiles) {
+              const proj = serverProjectiles[pid];
+              ctx.save();
+              ctx.fillStyle = '#ff5fd1';
+              ctx.shadowColor = '#ff9bee';
+              ctx.shadowBlur = 10;
+              ctx.beginPath();
+              ctx.arc(proj.x, proj.y, 2.4, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.restore();
+            }
+
             ctx.restore();
           }
 
@@ -1224,11 +1504,17 @@ io.use((socket, next) => {
   const username = socket.handshake.auth.username;
   if (!username) return next(new Error('닉네임이 올바르지 않습니다.'));
   socket.username = username;
+
+  const champion = socket.handshake.auth.champion;
+  socket.champion = (champion === 'lux') ? 'lux' : 'garen';
+
   next();
 });
 
 io.on('connection', (socket) => {
   const team = getBalancedTeam();
+  const champion = socket.champion;
+  const baseStats = CHAMPION_BASE_STATS[champion] || CHAMPION_BASE_STATS.garen;
   
   socket.join(team);
 
@@ -1243,6 +1529,7 @@ io.on('connection', (socket) => {
     facingX: team === 'blue' ? 1 : -1,
     facingY: team === 'blue' ? -1 : 1,
     username: socket.username,
+    champion: champion,
     team: team,
     isAttacking: false,
     attackProgress: 0,
@@ -1251,13 +1538,18 @@ io.on('connection', (socket) => {
     isDead: false,
     respawnTime: 0,
 
-    hp: 680,
-    maxHp: 680,
+    hp: baseStats.hp,
+    maxHp: baseStats.hp,
     shield: 0,
-    attackDamage: 68,
-    armor: 38,
-    magicResist: 32,
-    hpRegen: 8,
+    attackDamage: baseStats.attackDamage,
+    attackRange: baseStats.attackRange,
+    baseMoveSpeed: baseStats.baseMoveSpeed,
+    armor: baseStats.armor,
+    magicResist: baseStats.magicResist,
+    hpRegen: baseStats.hpRegen,
+    mana: baseStats.mana,
+    maxMana: baseStats.mana,
+    manaRegen: baseStats.manaRegen,
 
     lastCombatTime: 0,
     nextPassiveTickTime: 0,
@@ -1305,9 +1597,10 @@ io.on('connection', (socket) => {
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
+  const champName = champion === 'lux' ? '럭스' : '가렌';
   io.emit('chatMessage', {
     username: '시스템',
-    text: `${socket.username}님이 ${teamName}으로 입장하셨습니다.`,
+    text: `${socket.username}님이 ${champName}(으)로 ${teamName}에 입장하셨습니다.`,
     isSystem: true,
     targetMode: 'all'
   });
@@ -1336,9 +1629,10 @@ io.on('connection', (socket) => {
     }
   });
 
+  // === 아래 Q/W/E/R 스킬은 현재 가렌 전용으로 구현되어 있음 (럭스는 평타까지만 구현) ===
   socket.on('useQ', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.champion !== 'garen') return;
 
     const now = Date.now();
     if (now - p.lastQTime < p.qCooldown) return;
@@ -1354,7 +1648,7 @@ io.on('connection', (socket) => {
 
   socket.on('useW', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.champion !== 'garen') return;
 
     const now = Date.now();
     if (now - p.lastWTime < p.wCooldown) return;
@@ -1371,7 +1665,7 @@ io.on('connection', (socket) => {
 
   socket.on('useE', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.champion !== 'garen') return;
 
     const now = Date.now();
     if (now - p.lastETime < p.eCooldown) return;
@@ -1384,7 +1678,7 @@ io.on('connection', (socket) => {
 
   socket.on('useR', () => {
     const caster = players[socket.id];
-    if (!caster || caster.isDead) return;
+    if (!caster || caster.isDead || caster.champion !== 'garen') return;
 
     const now = Date.now();
     if (now - caster.lastRTime < caster.rCooldown) return;
@@ -1456,77 +1750,101 @@ io.on('connection', (socket) => {
   socket.on('attack', () => {
     const p = players[socket.id];
     const now = Date.now();
-    if (p && !p.isDead && !p.isAttacking && !p.isEActive && (now - p.lastAttackTime >= 1000)) {
-      p.isAttacking = true;
-      p.attackProgress = 0;
-      p.lastAttackTime = now;
+    if (!p || p.isDead || p.isAttacking || p.isEActive || (now - p.lastAttackTime < 1000)) return;
 
-      let damage = p.attackDamage;
-      if (p.hasQBuff) {
-        damage *= 1.5;
-        p.hasQBuff = false;
-      }
+    p.isAttacking = true;
+    p.attackProgress = 0;
+    p.lastAttackTime = now;
 
-      for (let targetId in players) {
-        if (targetId === socket.id) continue;
-        const target = players[targetId];
-        if (target.team === p.team || target.isDead) continue;
+    if (p.champion === 'lux') {
+      // 럭스 평타: 바라보는 방향으로 분홍색 구체 발사
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
 
-        const dx = target.x - p.x;
-        const dy = target.y - p.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+      const projId = 'proj_' + (projectileIdCounter++);
+      projectiles[projId] = {
+        id: projId,
+        ownerId: socket.id,
+        team: p.team,
+        x: p.x,
+        y: p.y,
+        dirX: dx,
+        dirY: dy,
+        speed: LUX_PROJECTILE_SPEED,
+        damage: p.attackDamage,
+        maxDistance: p.attackRange,
+        traveled: 0
+      };
+      return;
+    }
 
-        if (dist <= 35) {
-          // 전투 판정: 실제로 스치기만 해도 전투 중으로 취급 (가렌 패시브용)
-          p.lastCombatTime = now;
-          target.lastCombatTime = now;
+    // 가렌 평타 (근접, 기존 로직)
+    let damage = p.attackDamage;
+    if (p.hasQBuff) {
+      damage *= 1.5;
+      p.hasQBuff = false;
+    }
 
-          let totalArmor = target.armor + target.wBonusStats;
-          if (target.isArmorDebuffed) totalArmor *= 0.75;
+    for (let targetId in players) {
+      if (targetId === socket.id) continue;
+      const target = players[targetId];
+      if (target.team === p.team || target.isDead) continue;
 
-          let incomingDamage = Math.max(1, damage - totalArmor);
+      const dx = target.x - p.x;
+      const dy = target.y - p.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+      if (dist <= p.attackRange) {
+        // 전투 판정: 실제로 스치기만 해도 전투 중으로 취급 (가렌 패시브용)
+        p.lastCombatTime = now;
+        target.lastCombatTime = now;
 
-          if (target.shield > 0) {
-            if (target.shield >= incomingDamage) {
-              target.shield -= incomingDamage;
-              incomingDamage = 0;
-            } else {
-              incomingDamage -= target.shield;
-              target.shield = 0;
-            }
+        let totalArmor = target.armor + target.wBonusStats;
+        if (target.isArmorDebuffed) totalArmor *= 0.75;
+
+        let incomingDamage = Math.max(1, damage - totalArmor);
+
+        if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+        if (target.shield > 0) {
+          if (target.shield >= incomingDamage) {
+            target.shield -= incomingDamage;
+            incomingDamage = 0;
+          } else {
+            incomingDamage -= target.shield;
+            target.shield = 0;
           }
+        }
 
-          if (incomingDamage > 0) {
-            target.hp = Math.max(0, target.hp - incomingDamage);
+        if (incomingDamage > 0) {
+          target.hp = Math.max(0, target.hp - incomingDamage);
 
-            // 공격을 맞으면 귀환 취소
-            if (target.isRecalling) {
-              target.isRecalling = false;
+          // 공격을 맞으면 귀환 취소
+          if (target.isRecalling) {
+            target.isRecalling = false;
+          }
+          
+          if (target.hp === 0) {
+            target.isDead = true;
+            target.respawnTime = Date.now() + 10000;
+            target.hasQBuff = false;
+            target.hasSpeedBuff = false;
+            target.hasShieldPhase = false;
+            target.hasDamageReducePhase = false;
+            target.isEActive = false;
+            target.shield = 0;
+
+            if (p.wBonusStats < 30) {
+              p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
             }
-            
-            if (target.hp === 0) {
-              target.isDead = true;
-              target.respawnTime = Date.now() + 10000;
-              target.hasQBuff = false;
-              target.hasSpeedBuff = false;
-              target.hasShieldPhase = false;
-              target.hasDamageReducePhase = false;
-              target.isEActive = false;
-              target.shield = 0;
 
-              if (p.wBonusStats < 30) {
-                p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
-              }
-
-              io.emit('chatMessage', {
-                username: '시스템',
-                text: `${p.username}님이 ${target.username}님을 처치했습니다!`,
-                isSystem: true,
-                targetMode: 'all'
-              });
-            }
+            io.emit('chatMessage', {
+              username: '시스템',
+              text: `${p.username}님이 ${target.username}님을 처치했습니다!`,
+              isSystem: true,
+              targetMode: 'all'
+            });
           }
         }
       }
@@ -1596,6 +1914,87 @@ io.on('connection', (socket) => {
 
 setInterval(() => {
   const now = Date.now();
+
+  // === 투사체(럭스 평타) 이동 및 충돌 처리 ===
+  for (let pid in projectiles) {
+    const proj = projectiles[pid];
+    const moveDist = proj.speed / 60;
+    proj.x += proj.dirX * moveDist;
+    proj.y += proj.dirY * moveDist;
+    proj.traveled += moveDist;
+
+    let hit = false;
+
+    for (let tid in players) {
+      const target = players[tid];
+      if (target.team === proj.team || target.isDead) continue;
+
+      const tdx = target.x - proj.x;
+      const tdy = target.y - proj.y;
+      const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+      if (tdist <= LUX_PROJECTILE_HIT_RADIUS) {
+        const owner = players[proj.ownerId];
+        if (owner) owner.lastCombatTime = now;
+        target.lastCombatTime = now;
+
+        let totalArmor = target.armor + target.wBonusStats;
+        if (target.isArmorDebuffed) totalArmor *= 0.75;
+
+        let incomingDamage = Math.max(1, proj.damage - totalArmor);
+
+        if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+        if (target.shield > 0) {
+          if (target.shield >= incomingDamage) {
+            target.shield -= incomingDamage;
+            incomingDamage = 0;
+          } else {
+            incomingDamage -= target.shield;
+            target.shield = 0;
+          }
+        }
+
+        if (incomingDamage > 0) {
+          target.hp = Math.max(0, target.hp - incomingDamage);
+
+          if (target.isRecalling) {
+            target.isRecalling = false;
+          }
+
+          if (target.hp === 0) {
+            target.isDead = true;
+            target.respawnTime = now + 10000;
+            target.hasQBuff = false;
+            target.hasSpeedBuff = false;
+            target.hasShieldPhase = false;
+            target.hasDamageReducePhase = false;
+            target.isEActive = false;
+            target.shield = 0;
+
+            if (owner) {
+              if (owner.wBonusStats < 30) {
+                owner.wBonusStats = Math.min(30, owner.wBonusStats + 0.2);
+              }
+              io.emit('chatMessage', {
+                username: '시스템',
+                text: `${owner.username}님이 ${target.username}님을 처치했습니다!`,
+                isSystem: true,
+                targetMode: 'all'
+              });
+            }
+          }
+        }
+
+        hit = true;
+        break;
+      }
+    }
+
+    if (hit || proj.traveled >= proj.maxDistance || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
+      delete projectiles[pid];
+    }
+  }
 
   for (let id in players) {
     const p = players[id];
@@ -1811,6 +2210,10 @@ setInterval(() => {
       p.hp = Math.min(p.maxHp, p.hp + (p.hpRegen / 60));
     }
 
+    if (p.mana < p.maxMana) {
+      p.mana = Math.min(p.maxMana, p.mana + (p.manaRegen / 60));
+    }
+
     // 우물(스폰) 반경 내에 있으면 초당 최대체력의 20% 추가 회복
     const fountain = FOUNTAIN_POS[p.team];
     if (fountain) {
@@ -1852,7 +2255,7 @@ setInterval(() => {
     }
 
     if (!p.isRecalling) {
-      let currentSpeed = 0.6133;
+      let currentSpeed = p.baseMoveSpeed;
       if (p.hasSpeedBuff) currentSpeed *= 1.35;
       if (p.isEActive) currentSpeed *= 1.3;
       if (p.devSpeedBoost) currentSpeed *= 5;
@@ -1869,7 +2272,7 @@ setInterval(() => {
       if (nextY >= 10 && nextY <= MAP_SIZE - 10 && !isColliding(p.x, nextY)) p.y = nextY;
     }
   }
-  io.emit('gameState', { players });
+  io.emit('gameState', { players, projectiles });
 }, 1000 / 60);
 
 const PORT = process.env.PORT || 3000;
