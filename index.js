@@ -91,15 +91,26 @@ const LUX_Q_COOLDOWN = 10000;
 const LUX_Q_ROOT_DURATION = 2000;
 const LUX_Q_MAX_TARGETS = 2;
 
-// 럭스 W(프리즘 보호막) - 사거리는 실제 1075 * 0.2 환산, 마나/쿨타임은 스펙 미지정이라 임의로 설정
+// 럭스 W(프리즘 보호막) - 사거리는 실제 1075 * 0.2 환산, 마나는 스펙 미지정이라 임의로 설정
 const LUX_W_MANA_COST = 50;
 const LUX_W_RANGE = 215;
 const LUX_W_PROJECTILE_SPEED = 300;
 const LUX_W_HIT_RADIUS = 10;
-const LUX_W_COOLDOWN = 16000;
+const LUX_W_COOLDOWN = 14000;
 const LUX_W_SHIELD_AMOUNT = 40;
 const LUX_W_SHIELD_DURATION = 2500;
 const LUX_W_MAX_HITS_PER_TARGET = 2;
+
+// 럭스 E(빛의 특이점) - 사거리 1000 * 0.2, 범위 310 * 0.2 환산
+const LUX_E_MANA_COST = 50;
+const LUX_E_DAMAGE = 65;
+const LUX_E_RANGE = 200;
+const LUX_E_RADIUS = 62;
+const LUX_E_PROJECTILE_SPEED = 260;
+const LUX_E_COOLDOWN = 10000;
+const LUX_E_FUSE_DURATION = 5000; // 착지 후 자동 폭발까지 시간
+const LUX_E_EXPLOSION_SLOW_DURATION = 1000;
+const LUX_SLOW_MULTIPLIER = 0.6; // 40% 둔화 (수치 미지정이라 임의 설정)
 
 // 럭스 패시브(광채) - 레벨 시스템이 없어 레벨 비례 대신 고정 추가피해로 대체
 const LUX_PASSIVE_MARK_DURATION = 6000;
@@ -109,6 +120,79 @@ function refundRCooldown(casterId) {
   const caster = players[casterId];
   if (caster) {
     caster.lastRTime = 0; // 쿨타임 즉시 초기화 (재사용 가능)
+  }
+}
+
+function explodeLuxE(proj, now) {
+  const owner = players[proj.ownerId];
+
+  for (let tid in players) {
+    const target = players[tid];
+    if (target.team === proj.team || target.isDead) continue;
+
+    const tdx = target.x - proj.x;
+    const tdy = target.y - proj.y;
+    const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+    if (tdist > LUX_E_RADIUS) continue;
+
+    if (owner) owner.lastCombatTime = now;
+    target.lastCombatTime = now;
+
+    let incomingDamage = Math.max(1, LUX_E_DAMAGE - target.magicResist);
+    if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+    if (target.isLuxMarked && target.luxMarkedBy === proj.ownerId) {
+      incomingDamage += LUX_PASSIVE_BONUS_DAMAGE;
+      target.isLuxMarked = false;
+    }
+
+    if (target.shield > 0) {
+      if (target.shield >= incomingDamage) {
+        target.shield -= incomingDamage;
+        incomingDamage = 0;
+      } else {
+        incomingDamage -= target.shield;
+        target.shield = 0;
+      }
+    }
+
+    if (incomingDamage > 0) {
+      target.hp = Math.max(0, target.hp - incomingDamage);
+      if (target.isRecalling) target.isRecalling = false;
+
+      if (target.hp === 0) {
+        target.isDead = true;
+        target.respawnTime = now + 10000;
+        target.hasQBuff = false;
+        target.hasSpeedBuff = false;
+        target.hasShieldPhase = false;
+        target.hasDamageReducePhase = false;
+        target.isEActive = false;
+        target.shield = 0;
+        target.isRooted = false;
+
+        if (owner) {
+          if (owner.wBonusStats < 30) {
+            owner.wBonusStats = Math.min(30, owner.wBonusStats + 0.2);
+          }
+          io.emit('chatMessage', {
+            username: '시스템',
+            text: `${owner.username}님이 ${target.username}님을 처치했습니다!`,
+            isSystem: true,
+            targetMode: 'all'
+          });
+        }
+      }
+    }
+
+    if (!target.isDead) {
+      target.isLuxMarked = true;
+      target.luxMarkedBy = proj.ownerId;
+      target.luxMarkEndTime = now + LUX_PASSIVE_MARK_DURATION;
+
+      target.isSlowed = true;
+      target.slowEndTime = now + LUX_E_EXPLOSION_SLOW_DURATION;
+    }
   }
 }
 
@@ -602,6 +686,7 @@ app.get('/', (req, res) => {
           const recallTimer = document.getElementById('recall-timer');
 
           const MAP_SIZE = 2000;
+          const LUX_E_RADIUS_CLIENT = 62;
 
           const FOUNTAIN_RADIUS_CLIENT = 130;
           const FOUNTAIN_POS_CLIENT = {
@@ -740,6 +825,7 @@ app.get('/', (req, res) => {
 
                 clientPlayers[id].isLuxMarked = sp.isLuxMarked;
                 clientPlayers[id].isRooted = sp.isRooted;
+                clientPlayers[id].isSlowed = sp.isSlowed;
                 clientPlayers[id].luxShieldEndTime = sp.luxShieldEndTime;
 
                 clientPlayers[id].devSpeedBoost = sp.devSpeedBoost;
@@ -783,6 +869,7 @@ app.get('/', (req, res) => {
               if (cp.hasSpeedBuff) baseSpeed *= 1.35;
               if (cp.isEActive) baseSpeed *= 1.3;
               if (cp.devSpeedBoost) baseSpeed *= 5;
+              if (cp.isSlowed) baseSpeed *= 0.6;
               if (cp.isRooted) baseSpeed = 0;
 
               if (!cp.isEActive) {
@@ -1036,7 +1123,7 @@ app.get('/', (req, res) => {
             }
           }
 
-          function drawLuxShieldRing(ctx) {
+          function drawLuxShieldRing(ctx, radius) {
             const colors = ['#ff6ec7', '#ffa76e', '#ffe76e', '#8fffc0', '#6ec7ff', '#c78fff'];
             const segments = colors.length;
             ctx.save();
@@ -1048,9 +1135,22 @@ app.get('/', (req, res) => {
               ctx.strokeStyle = colors[i];
               ctx.shadowColor = colors[i];
               ctx.beginPath();
-              ctx.arc(0, 0, 11, start, end);
+              ctx.arc(0, 0, radius, start, end);
               ctx.stroke();
             }
+            ctx.restore();
+          }
+
+          function drawLuxSingularityZone(ctx, x, y, radius) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.globalAlpha = 0.14;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            drawLuxShieldRing(ctx, radius);
             ctx.restore();
           }
 
@@ -1058,7 +1158,7 @@ app.get('/', (req, res) => {
             if (p.isDead) return;
 
             if (p.shield > 0) {
-              drawLuxShieldRing(ctx);
+              drawLuxShieldRing(ctx, 11);
             }
 
             ctx.fillStyle = '#FFDA5E';
@@ -1090,9 +1190,9 @@ app.get('/', (req, res) => {
             let progress = (now - p.rMarkStartTime) / totalDuration;
             progress = Math.max(0, Math.min(1, progress));
 
-            const swordScale = 3.0; // 원래 크기로 복원
-            const startTipGap = 150; // 칼끝이 아주 높은 곳에서 시작
-            const endTipGap = 9;     // 캐릭터 하나 높이보다 살짝 낮은 정도에서 정지
+            const swordScale = 6.9;
+            const startTipGap = 90; // 화면 안에 다 보이도록 낮춤
+            const endTipGap = 2;    // 거의 닿는 높이까지 하강
 
             const tipGap = startTipGap + (endTipGap - startTipGap) * progress;
 
@@ -1475,6 +1575,13 @@ app.get('/', (req, res) => {
               ctx.drawImage(mapImage, 0, 0, MAP_SIZE, MAP_SIZE);
             }
 
+            for (let pid in serverProjectiles) {
+              const proj = serverProjectiles[pid];
+              if (proj.type === 'luxE' && proj.phase === 'active') {
+                drawLuxSingularityZone(ctx, proj.x, proj.y, LUX_E_RADIUS_CLIENT);
+              }
+            }
+
             for (let id in clientPlayers) {
               const p = clientPlayers[id];
               if (p.isDead) continue;
@@ -1557,12 +1664,26 @@ app.get('/', (req, res) => {
                 ctx.beginPath();
                 ctx.arc(proj.x, proj.y, 3.6, 0, Math.PI * 2);
                 ctx.fill();
+              } else if (proj.type === 'luxE' && proj.phase === 'flying') {
+                const grad = ctx.createRadialGradient(proj.x - 1, proj.y - 1, 0, proj.x, proj.y, 4);
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.25, '#8fd9ff');
+                grad.addColorStop(0.5, '#c88fff');
+                grad.addColorStop(0.75, '#ff8fd9');
+                grad.addColorStop(1, '#ffe98f');
+                ctx.fillStyle = grad;
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 14;
+                ctx.beginPath();
+                ctx.arc(proj.x, proj.y, 3.6, 0, Math.PI * 2);
+                ctx.fill();
               } else if (proj.type === 'luxW') {
                 ctx.translate(proj.x, proj.y);
                 ctx.rotate((Date.now() / 80) % (Math.PI * 2));
                 ctx.scale(1.3, 1.3);
+                ctx.translate(-10, 0); // 지팡이 중심을 회전축에 맞춤
                 renderWand(ctx);
-              } else {
+              } else if (proj.type === 'luxAttack') {
                 ctx.fillStyle = '#ff5fd1';
                 ctx.shadowColor = '#ff9bee';
                 ctx.shadowBlur = 10;
@@ -1686,7 +1807,7 @@ io.on('connection', (socket) => {
     wCooldown: champion === 'lux' ? LUX_W_COOLDOWN : 23000,
     lastWTime: 0,
 
-    eCooldown: 9000,
+    eCooldown: champion === 'lux' ? LUX_E_COOLDOWN : 9000,
     lastETime: 0,
     isEActive: false,
     eStartTime: 0,
@@ -1701,13 +1822,15 @@ io.on('connection', (socket) => {
     rCasterId: null,
     rCasterUsername: null,
 
-    // 럭스 패시브(광채) / Q(속박) / W(보호막) 상태
+    // 럭스 패시브(광채) / Q(속박) / W(보호막) / E(둔화) 상태
     isLuxMarked: false,
     luxMarkedBy: null,
     luxMarkEndTime: 0,
     isRooted: false,
     rootEndTime: 0,
     luxShieldEndTime: 0,
+    isSlowed: false,
+    slowEndTime: 0,
 
     isRecalling: false,
     recallStartTime: 0,
@@ -1863,9 +1986,53 @@ io.on('connection', (socket) => {
 
   socket.on('useE', () => {
     const p = players[socket.id];
-    if (!p || p.isDead || p.champion !== 'garen') return;
+    if (!p || p.isDead) return;
 
     const now = Date.now();
+
+    if (p.champion === 'lux') {
+      // 이미 날아가고 있거나 활성화된 자신의 특이점이 있으면 즉시 터뜨림 (쿨타임/마나 소모 없음)
+      for (let pid in projectiles) {
+        const proj = projectiles[pid];
+        if (proj.type === 'luxE' && proj.ownerId === socket.id) {
+          explodeLuxE(proj, now);
+          delete projectiles[pid];
+          return;
+        }
+      }
+
+      // 새로 시전
+      if (now - p.lastETime < p.eCooldown) return;
+      if (p.mana < LUX_E_MANA_COST) return;
+
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+
+      p.lastETime = now;
+      p.mana -= LUX_E_MANA_COST;
+
+      const projId = 'proj_' + (projectileIdCounter++);
+      projectiles[projId] = {
+        id: projId,
+        type: 'luxE',
+        ownerId: socket.id,
+        team: p.team,
+        x: p.x,
+        y: p.y,
+        dirX: dx,
+        dirY: dy,
+        speed: LUX_E_PROJECTILE_SPEED,
+        maxDistance: LUX_E_RANGE,
+        traveled: 0,
+        phase: 'flying',
+        explodeAt: null
+      };
+      return;
+    }
+
+    // 가렌 E (기존 로직)
+    if (p.champion !== 'garen') return;
     if (now - p.lastETime < p.eCooldown) return;
 
     p.lastETime = now;
@@ -2167,6 +2334,44 @@ setInterval(() => {
       continue;
     }
 
+    // 럭스 E(빛의 특이점): 비행 → 착지 후 활성 구역(지속 둔화) → 폭발
+    if (proj.type === 'luxE') {
+      if (proj.phase === 'flying') {
+        const moveDist = proj.speed / 60;
+        proj.x += proj.dirX * moveDist;
+        proj.y += proj.dirY * moveDist;
+        proj.traveled += moveDist;
+
+        if (proj.traveled >= proj.maxDistance || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
+          proj.phase = 'active';
+          proj.explodeAt = now + LUX_E_FUSE_DURATION;
+        }
+      }
+
+      if (proj.phase === 'active') {
+        for (let tid in players) {
+          const target = players[tid];
+          if (target.team === proj.team || target.isDead) continue;
+
+          const tdx = target.x - proj.x;
+          const tdy = target.y - proj.y;
+          const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+          if (tdist <= LUX_E_RADIUS) {
+            target.isSlowed = true;
+            target.slowEndTime = now + 200; // 영역 안에 있는 동안 매틱 갱신되는 지속 둔화
+          }
+        }
+
+        if (now >= proj.explodeAt) {
+          explodeLuxE(proj, now);
+          delete projectiles[pid];
+        }
+      }
+
+      continue;
+    }
+
     // 럭스 평타(luxAttack) / Q(luxQ): 적 대상 판정
     const moveDist = proj.speed / 60;
     proj.x += proj.dirX * moveDist;
@@ -2303,6 +2508,7 @@ setInterval(() => {
         p.dirY = 0;
         p.isRooted = false;
         p.isLuxMarked = false;
+        p.isSlowed = false;
         p.luxShieldEndTime = 0;
 
         // 부활 시 모든 스킬 쿨타임 초기화
@@ -2354,6 +2560,10 @@ setInterval(() => {
 
     if (p.isRooted && now >= p.rootEndTime) {
       p.isRooted = false;
+    }
+
+    if (p.isSlowed && now >= p.slowEndTime) {
+      p.isSlowed = false;
     }
 
     if (p.luxShieldEndTime > 0 && now >= p.luxShieldEndTime) {
@@ -2562,6 +2772,7 @@ setInterval(() => {
       if (p.hasSpeedBuff) currentSpeed *= 1.35;
       if (p.isEActive) currentSpeed *= 1.3;
       if (p.devSpeedBoost) currentSpeed *= 5;
+      if (p.isSlowed) currentSpeed *= LUX_SLOW_MULTIPLIER;
 
       let moveX = p.dirX, moveY = p.dirY;
       if (moveX !== 0 && moveY !== 0) {
