@@ -91,6 +91,16 @@ const LUX_Q_COOLDOWN = 10000;
 const LUX_Q_ROOT_DURATION = 2000;
 const LUX_Q_MAX_TARGETS = 2;
 
+// 럭스 W(프리즘 보호막) - 사거리는 실제 1075 * 0.2 환산, 마나/쿨타임은 스펙 미지정이라 임의로 설정
+const LUX_W_MANA_COST = 50;
+const LUX_W_RANGE = 215;
+const LUX_W_PROJECTILE_SPEED = 300;
+const LUX_W_HIT_RADIUS = 10;
+const LUX_W_COOLDOWN = 16000;
+const LUX_W_SHIELD_AMOUNT = 40;
+const LUX_W_SHIELD_DURATION = 2500;
+const LUX_W_MAX_HITS_PER_TARGET = 2;
+
 // 럭스 패시브(광채) - 레벨 시스템이 없어 레벨 비례 대신 고정 추가피해로 대체
 const LUX_PASSIVE_MARK_DURATION = 6000;
 const LUX_PASSIVE_BONUS_DAMAGE = 20;
@@ -730,6 +740,7 @@ app.get('/', (req, res) => {
 
                 clientPlayers[id].isLuxMarked = sp.isLuxMarked;
                 clientPlayers[id].isRooted = sp.isRooted;
+                clientPlayers[id].luxShieldEndTime = sp.luxShieldEndTime;
 
                 clientPlayers[id].devSpeedBoost = sp.devSpeedBoost;
               }
@@ -1025,8 +1036,30 @@ app.get('/', (req, res) => {
             }
           }
 
+          function drawLuxShieldRing(ctx) {
+            const colors = ['#ff6ec7', '#ffa76e', '#ffe76e', '#8fffc0', '#6ec7ff', '#c78fff'];
+            const segments = colors.length;
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.lineWidth = 2.5;
+            for (let i = 0; i < segments; i++) {
+              const start = (i / segments) * Math.PI * 2;
+              const end = ((i + 1) / segments) * Math.PI * 2;
+              ctx.strokeStyle = colors[i];
+              ctx.shadowColor = colors[i];
+              ctx.beginPath();
+              ctx.arc(0, 0, 11, start, end);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
           function drawSimpleLux(ctx, p) {
             if (p.isDead) return;
+
+            if (p.shield > 0) {
+              drawLuxShieldRing(ctx);
+            }
 
             ctx.fillStyle = '#FFDA5E';
             ctx.beginPath();
@@ -1057,9 +1090,9 @@ app.get('/', (req, res) => {
             let progress = (now - p.rMarkStartTime) / totalDuration;
             progress = Math.max(0, Math.min(1, progress));
 
-            const swordScale = 6.9; // 기존(3배) 대비 2.3배
+            const swordScale = 3.0; // 원래 크기로 복원
             const startTipGap = 150; // 칼끝이 아주 높은 곳에서 시작
-            const endTipGap = 9;     // 기존(13)보다 30% 더 내려온 높이에서 정지
+            const endTipGap = 9;     // 캐릭터 하나 높이보다 살짝 낮은 정도에서 정지
 
             const tipGap = startTipGap + (endTipGap - startTipGap) * progress;
 
@@ -1524,6 +1557,11 @@ app.get('/', (req, res) => {
                 ctx.beginPath();
                 ctx.arc(proj.x, proj.y, 3.6, 0, Math.PI * 2);
                 ctx.fill();
+              } else if (proj.type === 'luxW') {
+                ctx.translate(proj.x, proj.y);
+                ctx.rotate((Date.now() / 80) % (Math.PI * 2));
+                ctx.scale(1.3, 1.3);
+                renderWand(ctx);
               } else {
                 ctx.fillStyle = '#ff5fd1';
                 ctx.shadowColor = '#ff9bee';
@@ -1645,7 +1683,7 @@ io.on('connection', (socket) => {
     qCooldown: champion === 'lux' ? LUX_Q_COOLDOWN : 8000,
     lastQTime: 0,
 
-    wCooldown: 23000,
+    wCooldown: champion === 'lux' ? LUX_W_COOLDOWN : 23000,
     lastWTime: 0,
 
     eCooldown: 9000,
@@ -1663,12 +1701,13 @@ io.on('connection', (socket) => {
     rCasterId: null,
     rCasterUsername: null,
 
-    // 럭스 패시브(광채) / Q(속박) 상태
+    // 럭스 패시브(광채) / Q(속박) / W(보호막) 상태
     isLuxMarked: false,
     luxMarkedBy: null,
     luxMarkEndTime: 0,
     isRooted: false,
     rootEndTime: 0,
+    luxShieldEndTime: 0,
 
     isRecalling: false,
     recallStartTime: 0,
@@ -1774,9 +1813,42 @@ io.on('connection', (socket) => {
 
   socket.on('useW', () => {
     const p = players[socket.id];
-    if (!p || p.isDead || p.champion !== 'garen') return;
+    if (!p || p.isDead) return;
 
     const now = Date.now();
+
+    if (p.champion === 'lux') {
+      if (now - p.lastWTime < p.wCooldown) return;
+      if (p.mana < LUX_W_MANA_COST) return;
+
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+
+      p.lastWTime = now;
+      p.mana -= LUX_W_MANA_COST;
+
+      const projId = 'proj_' + (projectileIdCounter++);
+      projectiles[projId] = {
+        id: projId,
+        type: 'luxW',
+        ownerId: socket.id,
+        team: p.team,
+        x: p.x,
+        y: p.y,
+        dirX: dx,
+        dirY: dy,
+        speed: LUX_W_PROJECTILE_SPEED,
+        maxDistance: LUX_W_RANGE,
+        traveled: 0,
+        phase: 'out',
+        hitCounts: {}
+      };
+      return;
+    }
+
+    // 가렌 W (기존 로직)
+    if (p.champion !== 'garen') return;
     if (now - p.lastWTime < p.wCooldown) return;
 
     p.lastWTime = now;
@@ -2042,9 +2114,60 @@ io.on('connection', (socket) => {
 setInterval(() => {
   const now = Date.now();
 
-  // === 투사체(럭스 평타 / Q) 이동 및 충돌 처리 ===
+  // === 투사체 이동 및 충돌 처리 ===
   for (let pid in projectiles) {
     const proj = projectiles[pid];
+
+    // 럭스 W(프리즘 보호막): 아군 전용 부메랑, 별도 로직
+    if (proj.type === 'luxW') {
+      const moveDist = proj.speed / 60;
+
+      if (proj.phase === 'out') {
+        proj.x += proj.dirX * moveDist;
+        proj.y += proj.dirY * moveDist;
+        proj.traveled += moveDist;
+
+        if (proj.traveled >= proj.maxDistance || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
+          proj.phase = 'return';
+        }
+      } else {
+        const owner = players[proj.ownerId];
+        if (!owner) { delete projectiles[pid]; continue; }
+
+        const odx = owner.x - proj.x;
+        const ody = owner.y - proj.y;
+        const odist = Math.sqrt(odx * odx + ody * ody);
+
+        if (odist <= moveDist || odist < 8) {
+          delete projectiles[pid];
+          continue;
+        }
+        proj.x += (odx / odist) * moveDist;
+        proj.y += (ody / odist) * moveDist;
+      }
+
+      for (let tid in players) {
+        const target = players[tid];
+        if (target.team !== proj.team || target.isDead) continue;
+
+        const hitsSoFar = proj.hitCounts[tid] || 0;
+        if (hitsSoFar >= LUX_W_MAX_HITS_PER_TARGET) continue;
+
+        const tdx = target.x - proj.x;
+        const tdy = target.y - proj.y;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+        if (tdist <= LUX_W_HIT_RADIUS) {
+          target.shield = (target.shield || 0) + LUX_W_SHIELD_AMOUNT;
+          target.luxShieldEndTime = now + LUX_W_SHIELD_DURATION;
+          proj.hitCounts[tid] = hitsSoFar + 1;
+        }
+      }
+
+      continue;
+    }
+
+    // 럭스 평타(luxAttack) / Q(luxQ): 적 대상 판정
     const moveDist = proj.speed / 60;
     proj.x += proj.dirX * moveDist;
     proj.y += proj.dirY * moveDist;
@@ -2129,20 +2252,23 @@ setInterval(() => {
           }
         }
 
-        // Q 전용: 속박 부여 + 표식(재)부여, 최대 2명까지 관통
-        if (isQ && !target.isDead) {
-          target.isRooted = true;
-          target.rootEndTime = now + LUX_Q_ROOT_DURATION;
-
+        // 럭스의 평타/스킬에 맞으면(적 대상) 무조건 표식 (재)적용
+        if (!target.isDead) {
           target.isLuxMarked = true;
           target.luxMarkedBy = proj.ownerId;
           target.luxMarkEndTime = now + LUX_PASSIVE_MARK_DURATION;
+        }
+
+        // Q 전용: 속박 부여, 최대 2명까지 관통
+        if (isQ && !target.isDead) {
+          target.isRooted = true;
+          target.rootEndTime = now + LUX_Q_ROOT_DURATION;
 
           proj.hitTargets.push(tid);
           proj.hitCount++;
 
           if (proj.hitCount >= LUX_Q_MAX_TARGETS) destroyNow = true;
-        } else {
+        } else if (!isQ) {
           destroyNow = true; // 평타는 한 명 맞으면 소멸
         }
 
@@ -2177,6 +2303,7 @@ setInterval(() => {
         p.dirY = 0;
         p.isRooted = false;
         p.isLuxMarked = false;
+        p.luxShieldEndTime = 0;
 
         // 부활 시 모든 스킬 쿨타임 초기화
         p.lastQTime = 0;
@@ -2227,6 +2354,11 @@ setInterval(() => {
 
     if (p.isRooted && now >= p.rootEndTime) {
       p.isRooted = false;
+    }
+
+    if (p.luxShieldEndTime > 0 && now >= p.luxShieldEndTime) {
+      p.shield = 0;
+      p.luxShieldEndTime = 0;
     }
 
     if (p.isRecalling) {
