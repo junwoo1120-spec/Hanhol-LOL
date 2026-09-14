@@ -102,7 +102,7 @@ const LUX_W_SHIELD_DURATION = 2500;
 const LUX_W_MAX_HITS_PER_TARGET = 2;
 
 // 럭스 E(빛의 특이점) - 사거리 1000 * 0.2, 범위 310 * 0.2 환산
-const LUX_E_MANA_COST = 50;
+const LUX_E_MANA_COST = 70;
 const LUX_E_DAMAGE = 65;
 const LUX_E_RANGE = 200;
 const LUX_E_RADIUS = 62;
@@ -111,6 +111,15 @@ const LUX_E_COOLDOWN = 10000;
 const LUX_E_FUSE_DURATION = 5000; // 착지 후 자동 폭발까지 시간
 const LUX_E_EXPLOSION_SLOW_DURATION = 1000;
 const LUX_SLOW_MULTIPLIER = 0.6; // 40% 둔화 (수치 미지정이라 임의 설정)
+
+// 럭스 R(궁극의 섬광) - 사거리 3400 * 0.2, 범위(빔 폭) 200 * 0.2 환산
+const LUX_R_MANA_COST = 100;
+const LUX_R_DAMAGE = 300;
+const LUX_R_RANGE = 680;
+const LUX_R_WIDTH = 40;
+const LUX_R_CAST_DELAY = 700; // 선딜(수치 미지정, 임의 설정)
+const LUX_R_COOLDOWN = 60000;
+const LUX_R_BEAM_VISUAL_DURATION = 300;
 
 // 럭스 패시브(광채) - 레벨 시스템이 없어 레벨 비례 대신 고정 추가피해로 대체
 const LUX_PASSIVE_MARK_DURATION = 6000;
@@ -192,6 +201,90 @@ function explodeLuxE(proj, now) {
 
       target.isSlowed = true;
       target.slowEndTime = now + LUX_E_EXPLOSION_SLOW_DURATION;
+    }
+  }
+}
+
+function fireLuxR(caster, casterId, now) {
+  const dx = caster.rCastDirX, dy = caster.rCastDirY;
+  const startX = caster.x, startY = caster.y;
+  const endX = startX + dx * LUX_R_RANGE;
+  const endY = startY + dy * LUX_R_RANGE;
+
+  caster.rBeamStartX = startX;
+  caster.rBeamStartY = startY;
+  caster.rBeamEndX = endX;
+  caster.rBeamEndY = endY;
+  caster.rBeamShownUntil = now + LUX_R_BEAM_VISUAL_DURATION;
+
+  const segDX = endX - startX, segDY = endY - startY;
+  const segLenSq = (segDX * segDX + segDY * segDY) || 1;
+
+  for (let tid in players) {
+    const target = players[tid];
+    if (target.team === caster.team || target.isDead) continue;
+
+    let t = ((target.x - startX) * segDX + (target.y - startY) * segDY) / segLenSq;
+    t = Math.max(0, Math.min(1, t));
+    const closestX = startX + t * segDX;
+    const closestY = startY + t * segDY;
+    const ddx = target.x - closestX, ddy = target.y - closestY;
+    const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+
+    if (dist > LUX_R_WIDTH) continue;
+
+    caster.lastCombatTime = now;
+    target.lastCombatTime = now;
+
+    let incomingDamage = Math.max(1, LUX_R_DAMAGE - target.magicResist);
+    if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+    if (target.isLuxMarked && target.luxMarkedBy === casterId) {
+      incomingDamage += LUX_PASSIVE_BONUS_DAMAGE;
+      target.isLuxMarked = false;
+    }
+
+    if (target.shield > 0) {
+      if (target.shield >= incomingDamage) {
+        target.shield -= incomingDamage;
+        incomingDamage = 0;
+      } else {
+        incomingDamage -= target.shield;
+        target.shield = 0;
+      }
+    }
+
+    if (incomingDamage > 0) {
+      target.hp = Math.max(0, target.hp - incomingDamage);
+      if (target.isRecalling) target.isRecalling = false;
+
+      if (target.hp === 0) {
+        target.isDead = true;
+        target.respawnTime = now + 10000;
+        target.hasQBuff = false;
+        target.hasSpeedBuff = false;
+        target.hasShieldPhase = false;
+        target.hasDamageReducePhase = false;
+        target.isEActive = false;
+        target.shield = 0;
+        target.isRooted = false;
+
+        if (caster.wBonusStats < 30) {
+          caster.wBonusStats = Math.min(30, caster.wBonusStats + 0.2);
+        }
+        io.emit('chatMessage', {
+          username: '시스템',
+          text: `${caster.username}님이 궁극기로 ${target.username}님을 처치했습니다!`,
+          isSystem: true,
+          targetMode: 'all'
+        });
+      }
+    }
+
+    if (!target.isDead) {
+      target.isLuxMarked = true;
+      target.luxMarkedBy = casterId;
+      target.luxMarkEndTime = now + LUX_PASSIVE_MARK_DURATION;
     }
   }
 }
@@ -828,6 +921,13 @@ app.get('/', (req, res) => {
                 clientPlayers[id].isSlowed = sp.isSlowed;
                 clientPlayers[id].luxShieldEndTime = sp.luxShieldEndTime;
 
+                clientPlayers[id].isCastingR = sp.isCastingR;
+                clientPlayers[id].rBeamStartX = sp.rBeamStartX;
+                clientPlayers[id].rBeamStartY = sp.rBeamStartY;
+                clientPlayers[id].rBeamEndX = sp.rBeamEndX;
+                clientPlayers[id].rBeamEndY = sp.rBeamEndY;
+                clientPlayers[id].rBeamShownUntil = sp.rBeamShownUntil;
+
                 clientPlayers[id].devSpeedBoost = sp.devSpeedBoost;
               }
             }
@@ -1180,6 +1280,50 @@ app.get('/', (req, res) => {
               ctx.fill();
               ctx.restore();
             }
+          }
+
+          function drawLuxRCastGlow(ctx, p) {
+            if (!p.isCastingR) return;
+            ctx.save();
+            ctx.translate(p.renderX, p.renderY);
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 16;
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+
+          function drawLuxRBeam(ctx, p) {
+            if (!p.rBeamShownUntil || Date.now() >= p.rBeamShownUntil) return;
+            const colors = ['#ff3b3b', '#ff9d3b', '#fff23b', '#3bff6e', '#3bd4ff', '#8b3bff'];
+            ctx.save();
+            ctx.lineCap = 'round';
+            const segs = colors.length;
+            for (let i = 0; i < segs; i++) {
+              const t0 = i / segs, t1 = (i + 1) / segs;
+              const x0 = p.rBeamStartX + (p.rBeamEndX - p.rBeamStartX) * t0;
+              const y0 = p.rBeamStartY + (p.rBeamEndY - p.rBeamStartY) * t0;
+              const x1 = p.rBeamStartX + (p.rBeamEndX - p.rBeamStartX) * t1;
+              const y1 = p.rBeamStartY + (p.rBeamEndY - p.rBeamStartY) * t1;
+              ctx.strokeStyle = colors[i];
+              ctx.shadowColor = colors[i];
+              ctx.shadowBlur = 14;
+              ctx.lineWidth = 6;
+              ctx.beginPath();
+              ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+              ctx.stroke();
+            }
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 10;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.moveTo(p.rBeamStartX, p.rBeamStartY);
+            ctx.lineTo(p.rBeamEndX, p.rBeamEndY);
+            ctx.stroke();
+            ctx.restore();
           }
 
           function drawRMarker(ctx, p) {
@@ -1587,6 +1731,7 @@ app.get('/', (req, res) => {
               if (p.isDead) continue;
 
               drawFountainLaser(ctx, p);
+              drawLuxRBeam(ctx, p);
 
               ctx.save();
               ctx.translate(p.renderX, p.renderY);
@@ -1604,6 +1749,7 @@ app.get('/', (req, res) => {
 
               drawRMarker(ctx, p);
               drawRootEffect(ctx, p);
+              drawLuxRCastGlow(ctx, p);
 
               const barWidth = 14;
               const barHeight = 2;
@@ -1814,7 +1960,7 @@ io.on('connection', (socket) => {
     eHitCount: {},
     eDamageLevel: 3.8,
 
-    rCooldown: 140000,
+    rCooldown: champion === 'lux' ? LUX_R_COOLDOWN : 140000,
     lastRTime: 0,
     isRMarked: false,
     rMarkStartTime: 0,
@@ -1822,7 +1968,7 @@ io.on('connection', (socket) => {
     rCasterId: null,
     rCasterUsername: null,
 
-    // 럭스 패시브(광채) / Q(속박) / W(보호막) / E(둔화) 상태
+    // 럭스 패시브(광채) / Q(속박) / W(보호막) / E(둔화) / R(궁극) 상태
     isLuxMarked: false,
     luxMarkedBy: null,
     luxMarkEndTime: 0,
@@ -1831,6 +1977,16 @@ io.on('connection', (socket) => {
     luxShieldEndTime: 0,
     isSlowed: false,
     slowEndTime: 0,
+
+    isCastingR: false,
+    rCastEndTime: 0,
+    rCastDirX: 0,
+    rCastDirY: 0,
+    rBeamStartX: 0,
+    rBeamStartY: 0,
+    rBeamEndX: 0,
+    rBeamEndY: 0,
+    rBeamShownUntil: 0,
 
     isRecalling: false,
     recallStartTime: 0,
@@ -2042,10 +2198,32 @@ io.on('connection', (socket) => {
   });
 
   socket.on('useR', () => {
-    const caster = players[socket.id];
-    if (!caster || caster.isDead || caster.champion !== 'garen') return;
+    const p = players[socket.id];
+    if (!p || p.isDead) return;
 
     const now = Date.now();
+
+    if (p.champion === 'lux') {
+      if (p.isCastingR) return; // 이미 시전(선딜) 중이면 무시
+      if (now - p.lastRTime < p.rCooldown) return;
+      if (p.mana < LUX_R_MANA_COST) return;
+
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+
+      p.lastRTime = now;
+      p.mana -= LUX_R_MANA_COST;
+      p.isCastingR = true;
+      p.rCastEndTime = now + LUX_R_CAST_DELAY;
+      p.rCastDirX = dx;
+      p.rCastDirY = dy;
+      return;
+    }
+
+    // 가렌 R (기존 로직)
+    const caster = p;
+    if (caster.champion !== 'garen') return;
     if (now - caster.lastRTime < caster.rCooldown) return;
 
     let fx = caster.facingX, fy = caster.facingY;
@@ -2510,6 +2688,7 @@ setInterval(() => {
         p.isLuxMarked = false;
         p.isSlowed = false;
         p.luxShieldEndTime = 0;
+        p.isCastingR = false;
 
         // 부활 시 모든 스킬 쿨타임 초기화
         p.lastQTime = 0;
@@ -2569,6 +2748,11 @@ setInterval(() => {
     if (p.luxShieldEndTime > 0 && now >= p.luxShieldEndTime) {
       p.shield = 0;
       p.luxShieldEndTime = 0;
+    }
+
+    if (p.isCastingR && now >= p.rCastEndTime) {
+      p.isCastingR = false;
+      fireLuxR(p, id, now);
     }
 
     if (p.isRecalling) {
