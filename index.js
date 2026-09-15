@@ -50,7 +50,7 @@ const DEV_USERNAME = '박준우';
 
 // === 챔피언별 기본 스탯 ===
 // 체력/공격력/방어력/마법저항력/재생 계열은 실제 수치를 그대로 사용.
-// 사거리·이동속도는 게임 내 좌표 스케일이 달라서, 가렌의 "실제 스탯 → 게임 내 적용값" 비율을 그대로 럭스에도 적용해서 환산함.
+// 사거리·이동속도는 게임 내 좌표 스케일이 달라서, 가렌의 "실제 스탯 → 게임 내 적용값" 비율을 그대로 다른 챔피언에도 적용해서 환산함.
 //   사거리 비율: 35(가렌 게임 내 사거리) / 175(가렌 실제 사거리) = 0.2
 //   이동속도 비율: 36.8(가렌 초당 이동거리) / 340(가렌 실제 이동속도) ≈ 0.10824
 const CHAMPION_BASE_STATS = {
@@ -75,6 +75,17 @@ const CHAMPION_BASE_STATS = {
     magicResist: 30,
     attackRange: 110,          // 실제 550 * 0.2
     baseMoveSpeed: 0.5953      // 실제 330 * 0.10824 / 60
+  },
+  ashe: {
+    hp: 610,
+    hpRegen: 3.5,
+    mana: 280,
+    manaRegen: 6.97,
+    attackDamage: 59,
+    armor: 26,
+    magicResist: 33,
+    attackRange: 120,          // 실제 600 * 0.2
+    baseMoveSpeed: 0.5863      // 실제 325 * 0.10824 / 60
   }
 };
 
@@ -125,11 +136,62 @@ const LUX_R_BEAM_VISUAL_DURATION = 300;
 const LUX_PASSIVE_MARK_DURATION = 6000;
 const LUX_PASSIVE_BONUS_DAMAGE = 20;
 
+// 애쉬 패시브(냉기 사격) - 평타/스킬 적중 시 둔화. W는 2배 지속시간.
+const ASHE_PASSIVE_SLOW_DURATION = 2000;
+
+// 애쉬 평타
+const ASHE_ATTACK_PROJECTILE_SPEED = 320;
+
+// 애쉬 Q(포커스) - 쿨타임/마나 없이 평타 4회 적중 시 자동 발동
+const ASHE_Q_STACK_WINDOW = 4000;
+const ASHE_Q_MAX_STACKS = 4;
+const ASHE_Q_SLOW_DURATION = 10000; // 5발 다 맞을 가능성 고려해 합산 개념으로 10초 고정
+const ASHE_Q_ATTACK_SPEED_BOOST_DURATION = 6000;
+const ASHE_Q_ATTACK_COOLDOWN_BOOSTED = 667; // 공속 증가 중 평타 쿨타임 (1000 / 1.5)
+const ASHE_Q_DAMAGE_MULTIPLIERS = [1.1, 1.15, 1.2, 1.25, 1.3];
+const ASHE_Q_SPREAD_DEG = 40;
+const ASHE_Q_ARROW_DURATION = 0.5; // 초, 곡선 비행 시간
+const ASHE_Q_HIT_RADIUS = 8;
+
+// 애쉬 W(일제사격) - 사거리 1200 * 0.2 환산
+const ASHE_W_MANA_COST = 75;
+const ASHE_W_RANGE = 240;
+const ASHE_W_ARROW_SPEED = 320;
+const ASHE_W_COOLDOWN = 18000;
+const ASHE_W_ARROW_COUNT = 6;
+const ASHE_W_SPREAD_DEG = 30;
+const ASHE_W_HIT_RADIUS = 6;
+
+// 애쉬 E(매의 눈) - 데미지/마나 없이 시야(카메라 줌)만 6초간 확장
+const ASHE_E_COOLDOWN = 90000;
+const ASHE_E_VISION_DURATION = 6000;
+const ASHE_E_HAWK_DURATION = 1500;
+
+// 애쉬 R(마법의 수정 화살) - 맵 끝까지 날아감, 판정범위는 250 * 0.2 환산
+const ASHE_R_MANA_COST = 100;
+const ASHE_R_DAMAGE = 300;
+const ASHE_R_SPEED = 1500;
+const ASHE_R_COOLDOWN = 100000;
+const ASHE_R_HIT_RADIUS = 50;
+const ASHE_R_MIN_STUN = 1000;
+const ASHE_R_MAX_STUN = 3500;
+
 function refundRCooldown(casterId) {
   const caster = players[casterId];
   if (caster) {
     caster.lastRTime = 0; // 쿨타임 즉시 초기화 (재사용 가능)
   }
+}
+
+function resetOnDeathBuffs(target) {
+  target.hasQBuff = false;
+  target.hasSpeedBuff = false;
+  target.hasShieldPhase = false;
+  target.hasDamageReducePhase = false;
+  target.isEActive = false;
+  target.shield = 0;
+  target.isRooted = false;
+  target.isStunned = false;
 }
 
 function explodeLuxE(proj, now) {
@@ -172,13 +234,7 @@ function explodeLuxE(proj, now) {
       if (target.hp === 0) {
         target.isDead = true;
         target.respawnTime = now + 10000;
-        target.hasQBuff = false;
-        target.hasSpeedBuff = false;
-        target.hasShieldPhase = false;
-        target.hasDamageReducePhase = false;
-        target.isEActive = false;
-        target.shield = 0;
-        target.isRooted = false;
+        resetOnDeathBuffs(target);
 
         if (owner) {
           if (owner.wBonusStats < 30) {
@@ -261,13 +317,7 @@ function fireLuxR(caster, casterId, now) {
       if (target.hp === 0) {
         target.isDead = true;
         target.respawnTime = now + 10000;
-        target.hasQBuff = false;
-        target.hasSpeedBuff = false;
-        target.hasShieldPhase = false;
-        target.hasDamageReducePhase = false;
-        target.isEActive = false;
-        target.shield = 0;
-        target.isRooted = false;
+        resetOnDeathBuffs(target);
 
         if (caster.wBonusStats < 30) {
           caster.wBonusStats = Math.min(30, caster.wBonusStats + 0.2);
@@ -286,6 +336,61 @@ function fireLuxR(caster, casterId, now) {
       target.luxMarkedBy = casterId;
       target.luxMarkEndTime = now + LUX_PASSIVE_MARK_DURATION;
     }
+  }
+}
+
+function applyAsheFocusStack(owner, now) {
+  if (now > owner.asheFocusStackEndTime) {
+    owner.asheFocusStacks = 1;
+  } else {
+    owner.asheFocusStacks = Math.min(ASHE_Q_MAX_STACKS, owner.asheFocusStacks + 1);
+  }
+  owner.asheFocusStackEndTime = now + ASHE_Q_STACK_WINDOW;
+
+  if (owner.asheFocusStacks >= ASHE_Q_MAX_STACKS) {
+    owner.asheFocusStacks = 0;
+    owner.attackSpeedBoostEndTime = now + ASHE_Q_ATTACK_SPEED_BOOST_DURATION;
+    fireAsheEmpoweredVolley(owner);
+  }
+}
+
+function fireAsheEmpoweredVolley(caster) {
+  let dx = caster.facingX, dy = caster.facingY;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  dx /= len; dy /= len;
+  const baseAngle = Math.atan2(dy, dx);
+
+  const multipliers = ASHE_Q_DAMAGE_MULTIPLIERS;
+  const count = multipliers.length;
+  const startDeg = -ASHE_Q_SPREAD_DEG / 2;
+  const stepDeg = ASHE_Q_SPREAD_DEG / (count - 1);
+  const range = caster.attackRange;
+
+  for (let i = 0; i < count; i++) {
+    const angle = baseAngle + (startDeg + stepDeg * i) * Math.PI / 180;
+    const endX = caster.x + Math.cos(angle) * range;
+    const endY = caster.y + Math.sin(angle) * range;
+
+    const perpAngle = angle + Math.PI / 2;
+    const bulge = (i - (count - 1) / 2) * 14;
+    const midX = caster.x + Math.cos(angle) * range * 0.5 + Math.cos(perpAngle) * bulge;
+    const midY = caster.y + Math.sin(angle) * range * 0.5 + Math.sin(perpAngle) * bulge;
+
+    const projId = 'proj_' + (projectileIdCounter++);
+    projectiles[projId] = {
+      id: projId,
+      type: 'asheQArrow',
+      ownerId: caster.socketId,
+      team: caster.team,
+      startX: caster.x, startY: caster.y,
+      ctrlX: midX, ctrlY: midY,
+      endX: endX, endY: endY,
+      x: caster.x, y: caster.y,
+      dirX: dx, dirY: dy,
+      duration: ASHE_Q_ARROW_DURATION,
+      elapsed: 0,
+      damage: caster.attackDamage * multipliers[i]
+    };
   }
 }
 
@@ -380,10 +485,10 @@ app.get('/', (req, res) => {
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
 
         .champion-select-title { font-size: 12px; color: #aaa; margin-top: 10px; margin-bottom: 4px; text-align: left; }
-        .champion-select-row { display: flex; gap: 8px; }
+        .champion-select-row { display: flex; gap: 6px; }
         .champ-btn {
-          flex: 1; padding: 10px 6px; border-radius: 6px; border: 2px solid #555;
-          background: #333; color: #fff; cursor: pointer; font-weight: bold; font-size: 13px;
+          flex: 1; padding: 10px 4px; border-radius: 6px; border: 2px solid #555;
+          background: #333; color: #fff; cursor: pointer; font-weight: bold; font-size: 12px;
         }
         .champ-btn.selected { background: #0088ff; border-color: #66c2ff; }
 
@@ -534,6 +639,7 @@ app.get('/', (req, res) => {
           <div class="champion-select-row">
             <button type="button" class="champ-btn selected" id="champ-btn-garen" onclick="selectChampion('garen')">가렌</button>
             <button type="button" class="champ-btn" id="champ-btn-lux" onclick="selectChampion('lux')">럭스</button>
+            <button type="button" class="champ-btn" id="champ-btn-ashe" onclick="selectChampion('ashe')">애쉬</button>
           </div>
 
           <button id="auth-btn" onclick="handleGuestLogin()">게임 시작</button>
@@ -633,6 +739,7 @@ app.get('/', (req, res) => {
           selectedChampion = champ;
           document.getElementById('champ-btn-garen').classList.toggle('selected', champ === 'garen');
           document.getElementById('champ-btn-lux').classList.toggle('selected', champ === 'lux');
+          document.getElementById('champ-btn-ashe').classList.toggle('selected', champ === 'ashe');
         }
 
         function togglePlayerList() {
@@ -672,13 +779,15 @@ app.get('/', (req, res) => {
           const entries = Object.entries(playersData);
           countSpan.innerText = entries.length;
 
+          const champLabels = { lux: '럭스', ashe: '애쉬', garen: '가렌' };
+
           contentDiv.innerHTML = '';
           entries.forEach(([id, p]) => {
             const item = document.createElement('div');
             item.className = \`player-item \${p.team}\`;
             
             let nameSpan = document.createElement('span');
-            const champLabel = p.champion === 'lux' ? '럭스' : '가렌';
+            const champLabel = champLabels[p.champion] || '가렌';
             nameSpan.innerText = \`\${p.username} [\${champLabel}] (\${p.team === 'blue' ? '블루' : '레드'})\`;
             item.appendChild(nameSpan);
 
@@ -804,6 +913,7 @@ app.get('/', (req, res) => {
           let serverProjectiles = {};
           const keys = {};
           let camX = 1000, camY = 1000;
+          let hawkAnimStart = 0;
 
           drawSkillIcons(champion);
 
@@ -839,6 +949,9 @@ app.get('/', (req, res) => {
             if (e.key === 'e' || e.key === 'E' || e.key === 'ㄷ') {
               e.preventDefault();
               socket.emit('useE');
+              if (champion === 'ashe') {
+                hawkAnimStart = performance.now();
+              }
             }
             if (e.key === 'r' || e.key === 'R' || e.key === 'ㄱ') {
               e.preventDefault();
@@ -919,6 +1032,7 @@ app.get('/', (req, res) => {
                 clientPlayers[id].isLuxMarked = sp.isLuxMarked;
                 clientPlayers[id].isRooted = sp.isRooted;
                 clientPlayers[id].isSlowed = sp.isSlowed;
+                clientPlayers[id].isStunned = sp.isStunned;
                 clientPlayers[id].luxShieldEndTime = sp.luxShieldEndTime;
 
                 clientPlayers[id].isCastingR = sp.isCastingR;
@@ -927,6 +1041,8 @@ app.get('/', (req, res) => {
                 clientPlayers[id].rBeamEndX = sp.rBeamEndX;
                 clientPlayers[id].rBeamEndY = sp.rBeamEndY;
                 clientPlayers[id].rBeamShownUntil = sp.rBeamShownUntil;
+
+                clientPlayers[id].visionBoostEndTime = sp.visionBoostEndTime;
 
                 clientPlayers[id].devSpeedBoost = sp.devSpeedBoost;
               }
@@ -965,12 +1081,15 @@ app.get('/', (req, res) => {
             for (let id in clientPlayers) {
               const cp = clientPlayers[id];
               
-              let baseSpeed = cp.champion === 'lux' ? 35.7 : 36.8;
+              let baseSpeed = 36.8;
+              if (cp.champion === 'lux') baseSpeed = 35.7;
+              else if (cp.champion === 'ashe') baseSpeed = 35.2;
+
               if (cp.hasSpeedBuff) baseSpeed *= 1.35;
               if (cp.isEActive) baseSpeed *= 1.3;
               if (cp.devSpeedBoost) baseSpeed *= 5;
               if (cp.isSlowed) baseSpeed *= 0.6;
-              if (cp.isRooted) baseSpeed = 0;
+              if (cp.isRooted || cp.isStunned) baseSpeed = 0;
 
               if (!cp.isEActive) {
                 if (cp.dirX < 0 && cp.dirY < 0) {
@@ -1025,6 +1144,7 @@ app.get('/', (req, res) => {
             drawGame();
             drawMinimap();
             drawHUD();
+            drawHawkFlyover();
             requestAnimationFrame(renderLoop);
           }
           requestAnimationFrame(renderLoop);
@@ -1157,6 +1277,125 @@ app.get('/', (req, res) => {
             ctx.fill();
           }
 
+          // 애쉬 전용: 활 (하늘색 곡선 + 시위)
+          function renderBow(ctx) {
+            ctx.shadowColor = '#63e0e8';
+            ctx.shadowBlur = 5;
+            ctx.strokeStyle = '#63e0e8';
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(2, -9);
+            ctx.quadraticCurveTo(13, 0, 2, 9);
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(200, 245, 250, 0.85)';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(2, -9);
+            ctx.lineTo(2, 9);
+            ctx.stroke();
+          }
+
+          // 화살촉 + 화살깃 (파란 그라데이션)
+          function renderArrowShape(ctx, length) {
+            const len = length || 10;
+            ctx.shadowColor = '#4fa8f5';
+            ctx.shadowBlur = 5;
+
+            ctx.strokeStyle = '#2b7fd1';
+            ctx.lineWidth = len * 0.09;
+            ctx.beginPath();
+            ctx.moveTo(-len * 0.3, 0);
+            ctx.lineTo(len * 0.55, 0);
+            ctx.stroke();
+
+            ctx.fillStyle = '#4fa8f5';
+            ctx.beginPath();
+            ctx.moveTo(len * 0.75, 0);
+            ctx.lineTo(len * 0.45, -len * 0.14);
+            ctx.lineTo(len * 0.45, len * 0.14);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#1f6bc4';
+            ctx.beginPath();
+            ctx.moveTo(-len * 0.3, 0);
+            ctx.lineTo(-len * 0.5, -len * 0.16);
+            ctx.lineTo(-len * 0.38, 0);
+            ctx.lineTo(-len * 0.5, len * 0.16);
+            ctx.closePath();
+            ctx.fill();
+          }
+
+          // R스킬 전용: 얼음빛 대형 화살
+          function renderCrystalArrowShape(ctx, length) {
+            const len = length || 50;
+            ctx.shadowColor = '#bfefff';
+            ctx.shadowBlur = 14;
+
+            ctx.strokeStyle = '#7fd8ff';
+            ctx.lineWidth = len * 0.07;
+            ctx.beginPath();
+            ctx.moveTo(-len * 0.3, 0);
+            ctx.lineTo(len * 0.55, 0);
+            ctx.stroke();
+
+            ctx.fillStyle = '#eafcff';
+            ctx.beginPath();
+            ctx.moveTo(len * 0.78, 0);
+            ctx.lineTo(len * 0.42, -len * 0.16);
+            ctx.lineTo(len * 0.42, len * 0.16);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#9fe6ff';
+            ctx.beginPath();
+            ctx.moveTo(-len * 0.3, 0);
+            ctx.lineTo(-len * 0.52, -len * 0.18);
+            ctx.lineTo(-len * 0.38, 0);
+            ctx.lineTo(-len * 0.52, len * 0.18);
+            ctx.closePath();
+            ctx.fill();
+          }
+
+          // 매의 눈(E) 새 실루엣
+          function renderHawkSilhouette(ctx, wingPhase) {
+            const flap = Math.sin(wingPhase) * 0.35;
+            ctx.fillStyle = '#2f6fd8';
+
+            ctx.save();
+            ctx.rotate(flap);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(-14, -4, -26, -2);
+            ctx.quadraticCurveTo(-16, 2, -4, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            ctx.save();
+            ctx.rotate(-flap);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(14, -4, 26, -2);
+            ctx.quadraticCurveTo(16, 2, 4, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 6, 3.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(-6, -0.5);
+            ctx.lineTo(-10, 0);
+            ctx.lineTo(-6, 1.2);
+            ctx.closePath();
+            ctx.fill();
+          }
+
           function drawSimpleGaren(ctx, p) {
             if (p.isDead) return;
 
@@ -1170,6 +1409,9 @@ app.get('/', (req, res) => {
               ctx.arc(0, 0, 11, 0, Math.PI * 2);
               ctx.stroke();
               ctx.restore();
+            } else if (p.shield > 0) {
+              // 럭스 W로 받은 보호막 (무지개 링)
+              drawLuxShieldRing(ctx, 11);
             }
 
             ctx.fillStyle = '#FFE268';
@@ -1282,6 +1524,40 @@ app.get('/', (req, res) => {
             }
           }
 
+          function drawSimpleAshe(ctx, p) {
+            if (p.isDead) return;
+
+            if (p.hasShieldPhase || p.hasDamageReducePhase) {
+              ctx.save();
+              ctx.shadowColor = '#FFD700';
+              ctx.shadowBlur = 15;
+              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.arc(0, 0, 11, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            } else if (p.shield > 0) {
+              drawLuxShieldRing(ctx, 11);
+            }
+
+            ctx.fillStyle = '#0e4d96';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            renderBow(ctx);
+            ctx.restore();
+
+            if (p.isAttacking) {
+              ctx.save();
+              ctx.translate(6, 0);
+              renderArrowShape(ctx, 6);
+              ctx.restore();
+            }
+          }
+
           function drawLuxRCastGlow(ctx, p) {
             if (!p.isCastingR) return;
             ctx.save();
@@ -1310,7 +1586,7 @@ app.get('/', (req, res) => {
               ctx.strokeStyle = colors[i];
               ctx.shadowColor = colors[i];
               ctx.shadowBlur = 14;
-              ctx.lineWidth = 6;
+              ctx.lineWidth = 18;
               ctx.beginPath();
               ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
               ctx.stroke();
@@ -1318,7 +1594,7 @@ app.get('/', (req, res) => {
             ctx.strokeStyle = 'rgba(255,255,255,0.9)';
             ctx.shadowColor = '#ffffff';
             ctx.shadowBlur = 10;
-            ctx.lineWidth = 2.5;
+            ctx.lineWidth = 7.5;
             ctx.beginPath();
             ctx.moveTo(p.rBeamStartX, p.rBeamStartY);
             ctx.lineTo(p.rBeamEndX, p.rBeamEndY);
@@ -1435,6 +1711,25 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
+          // 스턴 이펙트: 머리 위 회전하는 별
+          function drawStunEffect(ctx, p) {
+            if (!p.isStunned) return;
+            const t = Date.now() / 1000;
+            ctx.save();
+            ctx.translate(p.renderX, p.renderY - 12);
+            for (let i = 0; i < 3; i++) {
+              const angle = t * 4 + (i / 3) * Math.PI * 2;
+              const x = Math.cos(angle) * 5;
+              const y = Math.sin(angle) * 2;
+              ctx.fillStyle = '#ffe066';
+              ctx.shadowColor = '#ffe066';
+              ctx.shadowBlur = 5;
+              ctx.font = 'bold 4px sans-serif';
+              ctx.fillText('★', x - 1.5, y);
+            }
+            ctx.restore();
+          }
+
           function drawGarenPortrait(ctx) {
             ctx.clearRect(0, 0, 64, 64);
             ctx.fillStyle = '#0a0f14';
@@ -1489,6 +1784,27 @@ app.get('/', (req, res) => {
             ctx.rotate(-50 * (Math.PI / 180));
             ctx.scale(1.7, 1.7);
             renderWand(ctx);
+            ctx.restore();
+
+            ctx.restore();
+          }
+
+          function drawAshePortrait(ctx) {
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.fillStyle = '#0a1a2e';
+            ctx.fillRect(0, 0, 64, 64);
+
+            ctx.save();
+            ctx.translate(24, 32);
+
+            ctx.fillStyle = '#0e4d96';
+            ctx.beginPath();
+            ctx.arc(0, 0, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.scale(1.6, 1.6);
+            renderBow(ctx);
             ctx.restore();
 
             ctx.restore();
@@ -1661,9 +1977,82 @@ app.get('/', (req, res) => {
             rCtx.stroke();
           }
 
+          function drawAsheSkillIcons() {
+            // 패시브 - 냉기 사격
+            const passiveCanvas = document.getElementById('icon-passive');
+            const passiveCtx = passiveCanvas.getContext('2d');
+            passiveCtx.fillStyle = '#0a2a3d'; passiveCtx.fillRect(0, 0, 48, 48);
+            passiveCtx.save();
+            passiveCtx.translate(24, 24);
+            passiveCtx.shadowColor = '#8fd9ff'; passiveCtx.shadowBlur = 10;
+            passiveCtx.strokeStyle = '#bfefff';
+            passiveCtx.lineWidth = 2;
+            for (let i = 0; i < 6; i++) {
+              passiveCtx.save();
+              passiveCtx.rotate(i * Math.PI / 3);
+              passiveCtx.beginPath();
+              passiveCtx.moveTo(0, 0);
+              passiveCtx.lineTo(0, -14);
+              passiveCtx.stroke();
+              passiveCtx.restore();
+            }
+            passiveCtx.restore();
+
+            // Q - 포커스
+            const qCanvas = document.getElementById('icon-q');
+            const qCtx = qCanvas.getContext('2d');
+            qCtx.fillStyle = '#12233d'; qCtx.fillRect(0, 0, 48, 48);
+            qCtx.save();
+            qCtx.translate(24, 24);
+            for (let i = 0; i < 5; i++) {
+              qCtx.save();
+              qCtx.rotate((i - 2) * 0.28);
+              qCtx.translate(-14, 0);
+              renderArrowShape(qCtx, 20);
+              qCtx.restore();
+            }
+            qCtx.restore();
+
+            // W - 일제사격
+            const wCanvas = document.getElementById('icon-w');
+            const wCtx = wCanvas.getContext('2d');
+            wCtx.fillStyle = '#12233d'; wCtx.fillRect(0, 0, 48, 48);
+            wCtx.save();
+            wCtx.translate(14, 24);
+            for (let i = 0; i < 6; i++) {
+              wCtx.save();
+              wCtx.rotate((i - 2.5) * 0.16);
+              renderArrowShape(wCtx, 26);
+              wCtx.restore();
+            }
+            wCtx.restore();
+
+            // E - 매의 눈
+            const eCanvas = document.getElementById('icon-e');
+            const eCtx = eCanvas.getContext('2d');
+            eCtx.fillStyle = '#12233d'; eCtx.fillRect(0, 0, 48, 48);
+            eCtx.save();
+            eCtx.translate(24, 24);
+            eCtx.scale(0.9, 0.9);
+            renderHawkSilhouette(eCtx, 0.6);
+            eCtx.restore();
+
+            // R - 마법의 수정 화살
+            const rCanvas = document.getElementById('icon-r');
+            const rCtx = rCanvas.getContext('2d');
+            rCtx.fillStyle = '#08131f'; rCtx.fillRect(0, 0, 48, 48);
+            rCtx.save();
+            rCtx.translate(10, 38);
+            rCtx.rotate(-45 * Math.PI / 180);
+            renderCrystalArrowShape(rCtx, 44);
+            rCtx.restore();
+          }
+
           function drawSkillIcons(champion) {
             if (champion === 'lux') {
               drawLuxSkillIcons();
+            } else if (champion === 'ashe') {
+              drawAsheSkillIcons();
             } else {
               drawGarenSkillIcons();
             }
@@ -1675,6 +2064,8 @@ app.get('/', (req, res) => {
 
             if (me.champion === 'lux') {
               drawLuxPortrait(portraitCtx);
+            } else if (me.champion === 'ashe') {
+              drawAshePortrait(portraitCtx);
             } else {
               drawGarenPortrait(portraitCtx);
             }
@@ -1702,17 +2093,41 @@ app.get('/', (req, res) => {
             if (rRemaining > 0) rCdBox.innerText = rRemaining;
           }
 
+          function drawHawkFlyover() {
+            if (!hawkAnimStart) return;
+            const elapsed = performance.now() - hawkAnimStart;
+            if (elapsed > 1500) { hawkAnimStart = 0; return; }
+
+            const cssWidth = canvas.width / dpr;
+            const cssHeight = canvas.height / dpr;
+            const t = elapsed / 1500;
+            const x = t * cssWidth;
+            const y = cssHeight * 0.3;
+
+            ctx.save();
+            ctx.scale(dpr, dpr);
+            ctx.translate(x, y);
+            ctx.scale(3.2, 3.2);
+            renderHawkSilhouette(ctx, elapsed / 90);
+            ctx.restore();
+          }
+
           function drawGame() {
             const me = clientPlayers[socket.id];
             ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.save();
+
+            let zoom = 4.0;
+            if (me && me.visionBoostEndTime && me.visionBoostEndTime > Date.now()) {
+              zoom = 4.0 / Math.SQRT2; // 면적 기준 100% 넓은 시야
+            }
             
             if (me) {
               camX += (me.renderX - camX) * 0.2;
               camY += (me.renderY - camY) * 0.2;
               const cssWidth = canvas.width / dpr, cssHeight = canvas.height / dpr;
               ctx.scale(dpr, dpr); ctx.translate(cssWidth / 2, cssHeight / 2);
-              ctx.scale(4.0, 4.0); ctx.translate(-camX, -camY);
+              ctx.scale(zoom, zoom); ctx.translate(-camX, -camY);
             }
 
             if (mapImage.complete && mapImage.naturalWidth !== 0) {
@@ -1741,6 +2156,8 @@ app.get('/', (req, res) => {
 
               if (p.champion === 'lux') {
                 drawSimpleLux(ctx, p);
+              } else if (p.champion === 'ashe') {
+                drawSimpleAshe(ctx, p);
               } else {
                 drawSimpleGaren(ctx, p);
               }
@@ -1749,6 +2166,7 @@ app.get('/', (req, res) => {
 
               drawRMarker(ctx, p);
               drawRootEffect(ctx, p);
+              drawStunEffect(ctx, p);
               drawLuxRCastGlow(ctx, p);
 
               const barWidth = 14;
@@ -1836,6 +2254,21 @@ app.get('/', (req, res) => {
                 ctx.beginPath();
                 ctx.arc(proj.x, proj.y, 2.4, 0, Math.PI * 2);
                 ctx.fill();
+              } else if (proj.type === 'asheAttack' || proj.type === 'asheW') {
+                const angle = Math.atan2(proj.dirY, proj.dirX);
+                ctx.translate(proj.x, proj.y);
+                ctx.rotate(angle);
+                renderArrowShape(ctx, 9);
+              } else if (proj.type === 'asheQArrow') {
+                const angle = Math.atan2(proj.dirY, proj.dirX);
+                ctx.translate(proj.x, proj.y);
+                ctx.rotate(angle);
+                renderArrowShape(ctx, 7);
+              } else if (proj.type === 'asheR') {
+                const angle = Math.atan2(proj.dirY, proj.dirX);
+                ctx.translate(proj.x, proj.y);
+                ctx.rotate(angle);
+                renderCrystalArrowShape(ctx, 45);
               }
               ctx.restore();
             }
@@ -1897,7 +2330,7 @@ io.use((socket, next) => {
   socket.username = username;
 
   const champion = socket.handshake.auth.champion;
-  socket.champion = (champion === 'lux') ? 'lux' : 'garen';
+  socket.champion = (champion === 'lux') ? 'lux' : (champion === 'ashe') ? 'ashe' : 'garen';
 
   next();
 });
@@ -1913,6 +2346,7 @@ io.on('connection', (socket) => {
   const spawnY = team === 'blue' ? 1900 : 100;
 
   players[socket.id] = { 
+    socketId: socket.id,
     x: spawnX, 
     y: spawnY, 
     dirX: 0, 
@@ -1950,17 +2384,17 @@ io.on('connection', (socket) => {
     qCooldown: champion === 'lux' ? LUX_Q_COOLDOWN : 8000,
     lastQTime: 0,
 
-    wCooldown: champion === 'lux' ? LUX_W_COOLDOWN : 23000,
+    wCooldown: champion === 'lux' ? LUX_W_COOLDOWN : (champion === 'ashe' ? ASHE_W_COOLDOWN : 23000),
     lastWTime: 0,
 
-    eCooldown: champion === 'lux' ? LUX_E_COOLDOWN : 9000,
+    eCooldown: champion === 'lux' ? LUX_E_COOLDOWN : (champion === 'ashe' ? ASHE_E_COOLDOWN : 9000),
     lastETime: 0,
     isEActive: false,
     eStartTime: 0,
     eHitCount: {},
     eDamageLevel: 3.8,
 
-    rCooldown: champion === 'lux' ? LUX_R_COOLDOWN : 140000,
+    rCooldown: champion === 'lux' ? LUX_R_COOLDOWN : (champion === 'ashe' ? ASHE_R_COOLDOWN : 140000),
     lastRTime: 0,
     isRMarked: false,
     rMarkStartTime: 0,
@@ -1988,6 +2422,14 @@ io.on('connection', (socket) => {
     rBeamEndY: 0,
     rBeamShownUntil: 0,
 
+    // 애쉬 Q(포커스) / 공속버프 / 시야버프 / 스턴
+    asheFocusStacks: 0,
+    asheFocusStackEndTime: 0,
+    attackSpeedBoostEndTime: 0,
+    visionBoostEndTime: 0,
+    isStunned: false,
+    stunEndTime: 0,
+
     isRecalling: false,
     recallStartTime: 0,
 
@@ -2008,7 +2450,8 @@ io.on('connection', (socket) => {
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
-  const champName = champion === 'lux' ? '럭스' : '가렌';
+  const champNameMap = { lux: '럭스', ashe: '애쉬', garen: '가렌' };
+  const champName = champNameMap[champion] || '가렌';
   io.emit('chatMessage', {
     username: '시스템',
     text: `${socket.username}님이 ${champName}(으)로 ${teamName}에 입장하셨습니다.`,
@@ -2042,7 +2485,7 @@ io.on('connection', (socket) => {
 
   socket.on('useQ', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.isStunned) return;
 
     const now = Date.now();
 
@@ -2077,6 +2520,9 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // 애쉬 Q는 자동 발동 스킬이라 수동 시전 없음
+    if (p.champion === 'ashe') return;
+
     // 가렌 Q (기존 로직)
     if (p.champion !== 'garen') return;
     if (now - p.lastQTime < p.qCooldown) return;
@@ -2092,7 +2538,7 @@ io.on('connection', (socket) => {
 
   socket.on('useW', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.isStunned) return;
 
     const now = Date.now();
 
@@ -2126,6 +2572,46 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (p.champion === 'ashe') {
+      if (now - p.lastWTime < p.wCooldown) return;
+      if (p.mana < ASHE_W_MANA_COST) return;
+
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+      const baseAngle = Math.atan2(dy, dx);
+
+      p.lastWTime = now;
+      p.mana -= ASHE_W_MANA_COST;
+
+      const sharedHitTracker = [];
+      const count = ASHE_W_ARROW_COUNT;
+      const startDeg = -ASHE_W_SPREAD_DEG / 2;
+      const stepDeg = ASHE_W_SPREAD_DEG / (count - 1);
+
+      for (let i = 0; i < count; i++) {
+        const angle = baseAngle + (startDeg + stepDeg * i) * Math.PI / 180;
+        const adx = Math.cos(angle), ady = Math.sin(angle);
+        const projId = 'proj_' + (projectileIdCounter++);
+        projectiles[projId] = {
+          id: projId,
+          type: 'asheW',
+          ownerId: socket.id,
+          team: p.team,
+          x: p.x,
+          y: p.y,
+          dirX: adx,
+          dirY: ady,
+          speed: ASHE_W_ARROW_SPEED,
+          damage: p.attackDamage,
+          maxDistance: ASHE_W_RANGE,
+          traveled: 0,
+          hitTracker: sharedHitTracker
+        };
+      }
+      return;
+    }
+
     // 가렌 W (기존 로직)
     if (p.champion !== 'garen') return;
     if (now - p.lastWTime < p.wCooldown) return;
@@ -2142,7 +2628,7 @@ io.on('connection', (socket) => {
 
   socket.on('useE', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.isStunned) return;
 
     const now = Date.now();
 
@@ -2187,6 +2673,14 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (p.champion === 'ashe') {
+      if (now - p.lastETime < p.eCooldown) return;
+
+      p.lastETime = now;
+      p.visionBoostEndTime = now + ASHE_E_VISION_DURATION;
+      return;
+    }
+
     // 가렌 E (기존 로직)
     if (p.champion !== 'garen') return;
     if (now - p.lastETime < p.eCooldown) return;
@@ -2199,7 +2693,7 @@ io.on('connection', (socket) => {
 
   socket.on('useR', () => {
     const p = players[socket.id];
-    if (!p || p.isDead) return;
+    if (!p || p.isDead || p.isStunned) return;
 
     const now = Date.now();
 
@@ -2218,6 +2712,35 @@ io.on('connection', (socket) => {
       p.rCastEndTime = now + LUX_R_CAST_DELAY;
       p.rCastDirX = dx;
       p.rCastDirY = dy;
+      return;
+    }
+
+    if (p.champion === 'ashe') {
+      if (now - p.lastRTime < p.rCooldown) return;
+      if (p.mana < ASHE_R_MANA_COST) return;
+
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+
+      p.lastRTime = now;
+      p.mana -= ASHE_R_MANA_COST;
+
+      const projId = 'proj_' + (projectileIdCounter++);
+      projectiles[projId] = {
+        id: projId,
+        type: 'asheR',
+        ownerId: socket.id,
+        team: p.team,
+        x: p.x,
+        y: p.y,
+        dirX: dx,
+        dirY: dy,
+        speed: ASHE_R_SPEED,
+        damage: ASHE_R_DAMAGE,
+        maxDistance: MAP_SIZE * 2,
+        traveled: 0
+      };
       return;
     }
 
@@ -2293,7 +2816,11 @@ io.on('connection', (socket) => {
   socket.on('attack', () => {
     const p = players[socket.id];
     const now = Date.now();
-    if (!p || p.isDead || p.isAttacking || p.isEActive || (now - p.lastAttackTime < 1000)) return;
+    if (!p || p.isDead || p.isStunned) return;
+
+    const attackCooldown = (p.champion === 'ashe' && now < p.attackSpeedBoostEndTime) ? ASHE_Q_ATTACK_COOLDOWN_BOOSTED : 1000;
+
+    if (p.isAttacking || p.isEActive || (now - p.lastAttackTime < attackCooldown)) return;
 
     p.isAttacking = true;
     p.attackProgress = 0;
@@ -2316,6 +2843,30 @@ io.on('connection', (socket) => {
         dirX: dx,
         dirY: dy,
         speed: LUX_PROJECTILE_SPEED,
+        damage: p.attackDamage,
+        maxDistance: p.attackRange,
+        traveled: 0
+      };
+      return;
+    }
+
+    if (p.champion === 'ashe') {
+      // 애쉬 평타: 바라보는 방향으로 화살 발사
+      let dx = p.facingX, dy = p.facingY;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= len; dy /= len;
+
+      const projId = 'proj_' + (projectileIdCounter++);
+      projectiles[projId] = {
+        id: projId,
+        type: 'asheAttack',
+        ownerId: socket.id,
+        team: p.team,
+        x: p.x,
+        y: p.y,
+        dirX: dx,
+        dirY: dy,
+        speed: ASHE_ATTACK_PROJECTILE_SPEED,
         damage: p.attackDamage,
         maxDistance: p.attackRange,
         traveled: 0
@@ -2372,12 +2923,7 @@ io.on('connection', (socket) => {
           if (target.hp === 0) {
             target.isDead = true;
             target.respawnTime = Date.now() + 10000;
-            target.hasQBuff = false;
-            target.hasSpeedBuff = false;
-            target.hasShieldPhase = false;
-            target.hasDamageReducePhase = false;
-            target.isEActive = false;
-            target.shield = 0;
+            resetOnDeathBuffs(target);
 
             if (p.wBonusStats < 30) {
               p.wBonusStats = Math.min(30, p.wBonusStats + 0.2);
@@ -2550,6 +3096,224 @@ setInterval(() => {
       continue;
     }
 
+    // 애쉬 Q 강화 화살(곡선 이동)
+    if (proj.type === 'asheQArrow') {
+      proj.elapsed = (proj.elapsed || 0) + (1 / 60);
+      const t = Math.min(1, proj.elapsed / proj.duration);
+      const it = 1 - t;
+      proj.x = it * it * proj.startX + 2 * it * t * proj.ctrlX + t * t * proj.endX;
+      proj.y = it * it * proj.startY + 2 * it * t * proj.ctrlY + t * t * proj.endY;
+
+      let hit = false;
+      for (let tid in players) {
+        const target = players[tid];
+        if (target.team === proj.team || target.isDead) continue;
+
+        const tdx = target.x - proj.x, tdy = target.y - proj.y;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+        if (tdist <= ASHE_Q_HIT_RADIUS) {
+          const owner = players[proj.ownerId];
+          if (owner) owner.lastCombatTime = now;
+          target.lastCombatTime = now;
+
+          let mitigation = target.armor + (target.wBonusStats || 0);
+          if (target.isArmorDebuffed) mitigation *= 0.75;
+          let incomingDamage = Math.max(1, proj.damage - mitigation);
+          if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+          if (target.shield > 0) {
+            if (target.shield >= incomingDamage) { target.shield -= incomingDamage; incomingDamage = 0; }
+            else { incomingDamage -= target.shield; target.shield = 0; }
+          }
+
+          if (incomingDamage > 0) {
+            target.hp = Math.max(0, target.hp - incomingDamage);
+            if (target.isRecalling) target.isRecalling = false;
+
+            if (target.hp === 0) {
+              target.isDead = true;
+              target.respawnTime = now + 10000;
+              resetOnDeathBuffs(target);
+
+              if (owner) {
+                if (owner.wBonusStats < 30) owner.wBonusStats = Math.min(30, owner.wBonusStats + 0.2);
+                io.emit('chatMessage', {
+                  username: '시스템',
+                  text: `${owner.username}님이 ${target.username}님을 처치했습니다!`,
+                  isSystem: true,
+                  targetMode: 'all'
+                });
+              }
+            }
+          }
+
+          if (!target.isDead) {
+            target.isSlowed = true;
+            target.slowEndTime = now + ASHE_Q_SLOW_DURATION;
+          }
+
+          hit = true;
+          break;
+        }
+      }
+
+      if (hit || t >= 1) {
+        delete projectiles[pid];
+      }
+      continue;
+    }
+
+    // 애쉬 R(마법의 수정 화살): 단일 대상, 거리비례 기절
+    if (proj.type === 'asheR') {
+      const moveDist = proj.speed / 60;
+      proj.x += proj.dirX * moveDist;
+      proj.y += proj.dirY * moveDist;
+      proj.traveled += moveDist;
+
+      let hit = false;
+
+      for (let tid in players) {
+        const target = players[tid];
+        if (target.team === proj.team || target.isDead) continue;
+
+        const tdx = target.x - proj.x, tdy = target.y - proj.y;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+        if (tdist <= ASHE_R_HIT_RADIUS) {
+          const owner = players[proj.ownerId];
+          if (owner) owner.lastCombatTime = now;
+          target.lastCombatTime = now;
+
+          let mitigation = target.armor + (target.wBonusStats || 0);
+          if (target.isArmorDebuffed) mitigation *= 0.75;
+          let incomingDamage = Math.max(1, proj.damage - mitigation);
+          if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+          if (target.shield > 0) {
+            if (target.shield >= incomingDamage) { target.shield -= incomingDamage; incomingDamage = 0; }
+            else { incomingDamage -= target.shield; target.shield = 0; }
+          }
+
+          if (incomingDamage > 0) {
+            target.hp = Math.max(0, target.hp - incomingDamage);
+            if (target.isRecalling) target.isRecalling = false;
+
+            if (target.hp === 0) {
+              target.isDead = true;
+              target.respawnTime = now + 10000;
+              resetOnDeathBuffs(target);
+
+              if (owner) {
+                if (owner.wBonusStats < 30) owner.wBonusStats = Math.min(30, owner.wBonusStats + 0.2);
+                io.emit('chatMessage', {
+                  username: '시스템',
+                  text: `${owner.username}님이 궁극기로 ${target.username}님을 처치했습니다!`,
+                  isSystem: true,
+                  targetMode: 'all'
+                });
+              }
+            }
+          }
+
+          if (!target.isDead) {
+            const distRatio = Math.max(0, Math.min(1, proj.traveled / MAP_SIZE));
+            const stunDuration = ASHE_R_MIN_STUN + (ASHE_R_MAX_STUN - ASHE_R_MIN_STUN) * distRatio;
+            target.isStunned = true;
+            target.stunEndTime = now + stunDuration;
+
+            target.isSlowed = true;
+            target.slowEndTime = now + ASHE_PASSIVE_SLOW_DURATION;
+          }
+
+          hit = true;
+          break;
+        }
+      }
+
+      if (hit || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
+        delete projectiles[pid];
+      }
+      continue;
+    }
+
+    // 애쉬 평타(asheAttack) / W(asheW): 직선 이동, 관통 없음
+    if (proj.type === 'asheAttack' || proj.type === 'asheW') {
+      const moveDist = proj.speed / 60;
+      proj.x += proj.dirX * moveDist;
+      proj.y += proj.dirY * moveDist;
+      proj.traveled += moveDist;
+
+      let hit = false;
+
+      for (let tid in players) {
+        const target = players[tid];
+        if (target.team === proj.team || target.isDead) continue;
+        if (proj.hitTracker && proj.hitTracker.includes(tid)) continue;
+
+        const tdx = target.x - proj.x, tdy = target.y - proj.y;
+        const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+        if (tdist <= ASHE_W_HIT_RADIUS) {
+          const owner = players[proj.ownerId];
+          if (owner) owner.lastCombatTime = now;
+          target.lastCombatTime = now;
+
+          let mitigation = target.armor + (target.wBonusStats || 0);
+          if (target.isArmorDebuffed) mitigation *= 0.75;
+          let incomingDamage = Math.max(1, proj.damage - mitigation);
+          if (target.hasDamageReducePhase) incomingDamage *= 0.7;
+
+          if (target.shield > 0) {
+            if (target.shield >= incomingDamage) { target.shield -= incomingDamage; incomingDamage = 0; }
+            else { incomingDamage -= target.shield; target.shield = 0; }
+          }
+
+          if (incomingDamage > 0) {
+            target.hp = Math.max(0, target.hp - incomingDamage);
+            if (target.isRecalling) target.isRecalling = false;
+
+            if (target.hp === 0) {
+              target.isDead = true;
+              target.respawnTime = now + 10000;
+              resetOnDeathBuffs(target);
+
+              if (owner) {
+                if (owner.wBonusStats < 30) owner.wBonusStats = Math.min(30, owner.wBonusStats + 0.2);
+                io.emit('chatMessage', {
+                  username: '시스템',
+                  text: `${owner.username}님이 ${target.username}님을 처치했습니다!`,
+                  isSystem: true,
+                  targetMode: 'all'
+                });
+              }
+            }
+          }
+
+          if (!target.isDead) {
+            // 애쉬 패시브: W는 2배 지속시간
+            const slowDur = proj.type === 'asheW' ? ASHE_PASSIVE_SLOW_DURATION * 2 : ASHE_PASSIVE_SLOW_DURATION;
+            target.isSlowed = true;
+            target.slowEndTime = now + slowDur;
+          }
+
+          // 애쉬 평타 명중 시 포커스 스택
+          if (proj.type === 'asheAttack' && owner && !target.isDead) {
+            applyAsheFocusStack(owner, now);
+          }
+
+          if (proj.hitTracker) proj.hitTracker.push(tid);
+          hit = true;
+          break;
+        }
+      }
+
+      if (hit || proj.traveled >= proj.maxDistance || proj.x < 0 || proj.x > MAP_SIZE || proj.y < 0 || proj.y > MAP_SIZE) {
+        delete projectiles[pid];
+      }
+      continue;
+    }
+
     // 럭스 평타(luxAttack) / Q(luxQ): 적 대상 판정
     const moveDist = proj.speed / 60;
     proj.x += proj.dirX * moveDist;
@@ -2613,13 +3377,7 @@ setInterval(() => {
           if (target.hp === 0) {
             target.isDead = true;
             target.respawnTime = now + 10000;
-            target.hasQBuff = false;
-            target.hasSpeedBuff = false;
-            target.hasShieldPhase = false;
-            target.hasDamageReducePhase = false;
-            target.isEActive = false;
-            target.shield = 0;
-            target.isRooted = false;
+            resetOnDeathBuffs(target);
 
             if (owner) {
               if (owner.wBonusStats < 30) {
@@ -2687,8 +3445,10 @@ setInterval(() => {
         p.isRooted = false;
         p.isLuxMarked = false;
         p.isSlowed = false;
+        p.isStunned = false;
         p.luxShieldEndTime = 0;
         p.isCastingR = false;
+        p.asheFocusStacks = 0;
 
         // 부활 시 모든 스킬 쿨타임 초기화
         p.lastQTime = 0;
@@ -2710,13 +3470,7 @@ setInterval(() => {
         p.isDead = true;
         p.respawnTime = now + 10000;
         p.isRecalling = false;
-        p.hasQBuff = false;
-        p.hasSpeedBuff = false;
-        p.hasShieldPhase = false;
-        p.hasDamageReducePhase = false;
-        p.isEActive = false;
-        p.shield = 0;
-        p.isRooted = false;
+        resetOnDeathBuffs(p);
 
         io.emit('chatMessage', {
           username: '시스템',
@@ -2743,6 +3497,10 @@ setInterval(() => {
 
     if (p.isSlowed && now >= p.slowEndTime) {
       p.isSlowed = false;
+    }
+
+    if (p.isStunned && now >= p.stunEndTime) {
+      p.isStunned = false;
     }
 
     if (p.luxShieldEndTime > 0 && now >= p.luxShieldEndTime) {
@@ -2876,12 +3634,7 @@ setInterval(() => {
       if (p.hp === 0) {
         p.isDead = true;
         p.respawnTime = now + 10000;
-        p.hasQBuff = false;
-        p.hasSpeedBuff = false;
-        p.hasShieldPhase = false;
-        p.hasDamageReducePhase = false;
-        p.isEActive = false;
-        p.shield = 0;
+        resetOnDeathBuffs(p);
 
         if (rCaster && rCaster.wBonusStats < 30) {
           rCaster.wBonusStats = Math.min(30, rCaster.wBonusStats + 0.2);
@@ -2951,7 +3704,7 @@ setInterval(() => {
       }
     }
 
-    if (!p.isRecalling && !p.isRooted) {
+    if (!p.isRecalling && !p.isRooted && !p.isStunned) {
       let currentSpeed = p.baseMoveSpeed;
       if (p.hasSpeedBuff) currentSpeed *= 1.35;
       if (p.isEActive) currentSpeed *= 1.3;
