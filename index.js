@@ -86,6 +86,17 @@ const CHAMPION_BASE_STATS = {
     magicResist: 33,
     attackRange: 120,          // 실제 600 * 0.2
     baseMoveSpeed: 0.5863      // 실제 325 * 0.10824 / 60
+  },
+  aatrox: {
+    hp: 650,
+    hpRegen: 3,
+    mana: 0,
+    manaRegen: 0,
+    attackDamage: 60,
+    armor: 38,
+    magicResist: 32,
+    attackRange: 35,           // 실제 175 * 0.2
+    baseMoveSpeed: 0.62235     // 실제 345 * 0.10824 / 60
   }
 };
 
@@ -485,9 +496,9 @@ app.get('/', (req, res) => {
         .warning-text { color: #ffaa00; font-size: 12px; margin-bottom: 12px; line-height: 1.4; word-break: keep-all; }
 
         .champion-select-title { font-size: 12px; color: #aaa; margin-top: 10px; margin-bottom: 4px; text-align: left; }
-        .champion-select-row { display: flex; gap: 6px; }
+        .champion-select-row { display: flex; gap: 5px; flex-wrap: wrap; }
         .champ-btn {
-          flex: 1; padding: 10px 4px; border-radius: 6px; border: 2px solid #555;
+          flex: 1 1 45%; padding: 9px 4px; border-radius: 6px; border: 2px solid #555;
           background: #333; color: #fff; cursor: pointer; font-weight: bold; font-size: 12px;
         }
         .champ-btn.selected { background: #0088ff; border-color: #66c2ff; }
@@ -640,6 +651,7 @@ app.get('/', (req, res) => {
             <button type="button" class="champ-btn selected" id="champ-btn-garen" onclick="selectChampion('garen')">가렌</button>
             <button type="button" class="champ-btn" id="champ-btn-lux" onclick="selectChampion('lux')">럭스</button>
             <button type="button" class="champ-btn" id="champ-btn-ashe" onclick="selectChampion('ashe')">애쉬</button>
+            <button type="button" class="champ-btn" id="champ-btn-aatrox" onclick="selectChampion('aatrox')">아트록스</button>
           </div>
 
           <button id="auth-btn" onclick="handleGuestLogin()">게임 시작</button>
@@ -740,6 +752,7 @@ app.get('/', (req, res) => {
           document.getElementById('champ-btn-garen').classList.toggle('selected', champ === 'garen');
           document.getElementById('champ-btn-lux').classList.toggle('selected', champ === 'lux');
           document.getElementById('champ-btn-ashe').classList.toggle('selected', champ === 'ashe');
+          document.getElementById('champ-btn-aatrox').classList.toggle('selected', champ === 'aatrox');
         }
 
         function togglePlayerList() {
@@ -779,7 +792,7 @@ app.get('/', (req, res) => {
           const entries = Object.entries(playersData);
           countSpan.innerText = entries.length;
 
-          const champLabels = { lux: '럭스', ashe: '애쉬', garen: '가렌' };
+          const champLabels = { lux: '럭스', ashe: '애쉬', aatrox: '아트록스', garen: '가렌' };
 
           contentDiv.innerHTML = '';
           entries.forEach(([id, p]) => {
@@ -1084,6 +1097,7 @@ app.get('/', (req, res) => {
               let baseSpeed = 36.8;
               if (cp.champion === 'lux') baseSpeed = 35.7;
               else if (cp.champion === 'ashe') baseSpeed = 35.2;
+              else if (cp.champion === 'aatrox') baseSpeed = 37.3;
 
               if (cp.hasSpeedBuff) baseSpeed *= 1.35;
               if (cp.isEActive) baseSpeed *= 1.3;
@@ -1381,6 +1395,65 @@ app.get('/', (req, res) => {
             ctx.fill();
           }
 
+          // 아트록스 전용: 빨강/검정 대검
+          function renderAatroxBlade(ctx) {
+            ctx.shadowColor = '#ff2222';
+            ctx.shadowBlur = 6;
+
+            ctx.fillStyle = '#2b2b2b';
+            ctx.fillRect(3, -0.8, 3, 1.6);
+
+            ctx.fillStyle = '#661111';
+            ctx.beginPath();
+            ctx.moveTo(6, -3); ctx.lineTo(7.5, 0); ctx.lineTo(6, 3); ctx.lineTo(4.5, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#c81e1e';
+            ctx.beginPath();
+            ctx.moveTo(7.5, -1.8);
+            ctx.lineTo(18, -1.2);
+            ctx.lineTo(21, 0);
+            ctx.lineTo(18, 1.2);
+            ctx.lineTo(7.5, 1.8);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(8, -0.6, 10, 1.2);
+          }
+
+          // 아트록스 전용: 회색 뿔 + 빨간 망토(박쥐날개)
+          function renderAatroxCapeAndHorns(ctx) {
+            ctx.fillStyle = '#8c1c1c';
+            ctx.beginPath();
+            ctx.moveTo(-2, -1);
+            ctx.quadraticCurveTo(-9, -6, -8, -2);
+            ctx.quadraticCurveTo(-6, 1, -2, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-2, 1);
+            ctx.quadraticCurveTo(-9, 6, -8, 2);
+            ctx.quadraticCurveTo(-6, -1, -2, -3);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#8a8a8a';
+            ctx.beginPath();
+            ctx.moveTo(-1, -3.5);
+            ctx.quadraticCurveTo(-5, -8, -3, -9.5);
+            ctx.quadraticCurveTo(0, -6, 1, -3.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-1, 3.5);
+            ctx.quadraticCurveTo(-5, 8, -3, 9.5);
+            ctx.quadraticCurveTo(0, 6, 1, 3.5);
+            ctx.closePath();
+            ctx.fill();
+          }
+
           function drawSimpleGaren(ctx, p) {
             if (p.isDead) return;
 
@@ -1541,6 +1614,58 @@ app.get('/', (req, res) => {
               renderArrowShape(ctx, 6);
               ctx.restore();
             }
+          }
+
+          function drawSimpleAatrox(ctx, p) {
+            if (p.isDead) return;
+
+            if (p.hasShieldPhase || p.hasDamageReducePhase) {
+              ctx.save();
+              ctx.shadowColor = '#FFD700';
+              ctx.shadowBlur = 15;
+              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+              ctx.lineWidth = 2.5;
+              ctx.beginPath();
+              ctx.arc(0, 0, 11, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+            } else if (p.shield > 0) {
+              drawLuxShieldRing(ctx, 11);
+            }
+
+            renderAatroxCapeAndHorns(ctx);
+
+            ctx.fillStyle = '#f5f0e6';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 살짝 웃는 눈 (> <)
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(-2.2, -1.6); ctx.lineTo(-1, -1);
+            ctx.moveTo(-2.2, -0.4); ctx.lineTo(-1, -1);
+            ctx.stroke();
+
+            let swingAngle = 0;
+            if (p.isAttacking) {
+              swingAngle = -1.2 + (p.attackProgress * 2.4);
+            }
+
+            ctx.save();
+            ctx.rotate(swingAngle);
+
+            if (p.isAttacking) {
+              ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
+              ctx.fill();
+            }
+
+            renderAatroxBlade(ctx);
+            ctx.restore();
           }
 
           function drawLuxRCastGlow(ctx, p) {
@@ -1795,6 +1920,30 @@ app.get('/', (req, res) => {
             ctx.restore();
           }
 
+          function drawAatroxPortrait(ctx) {
+            ctx.clearRect(0, 0, 64, 64);
+            ctx.fillStyle = '#2a0e0e';
+            ctx.fillRect(0, 0, 64, 64);
+
+            ctx.save();
+            ctx.translate(28, 34);
+            ctx.scale(1.6, 1.6);
+
+            renderAatroxCapeAndHorns(ctx);
+
+            ctx.fillStyle = '#f5f0e6';
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.rotate(-40 * Math.PI / 180);
+            renderAatroxBlade(ctx);
+            ctx.restore();
+
+            ctx.restore();
+          }
+
           function drawPassiveIcon(ctx) {
             ctx.clearRect(0, 0, 48, 48);
             ctx.fillStyle = '#0a3d2e';
@@ -2033,11 +2182,23 @@ app.get('/', (req, res) => {
             rCtx.restore();
           }
 
+          function drawAatroxSkillIcons() {
+            // 아직 패시브/Q/W/E/R 미구현 - 빈 슬롯만 표시
+            ['icon-passive', 'icon-q', 'icon-w', 'icon-e', 'icon-r'].forEach((id) => {
+              const c = document.getElementById(id);
+              const cx = c.getContext('2d');
+              cx.fillStyle = '#1a1414';
+              cx.fillRect(0, 0, 48, 48);
+            });
+          }
+
           function drawSkillIcons(champion) {
             if (champion === 'lux') {
               drawLuxSkillIcons();
             } else if (champion === 'ashe') {
               drawAsheSkillIcons();
+            } else if (champion === 'aatrox') {
+              drawAatroxSkillIcons();
             } else {
               drawGarenSkillIcons();
             }
@@ -2051,6 +2212,8 @@ app.get('/', (req, res) => {
               drawLuxPortrait(portraitCtx);
             } else if (me.champion === 'ashe') {
               drawAshePortrait(portraitCtx);
+            } else if (me.champion === 'aatrox') {
+              drawAatroxPortrait(portraitCtx);
             } else {
               drawGarenPortrait(portraitCtx);
             }
@@ -2143,6 +2306,8 @@ app.get('/', (req, res) => {
                 drawSimpleLux(ctx, p);
               } else if (p.champion === 'ashe') {
                 drawSimpleAshe(ctx, p);
+              } else if (p.champion === 'aatrox') {
+                drawSimpleAatrox(ctx, p);
               } else {
                 drawSimpleGaren(ctx, p);
               }
@@ -2315,7 +2480,10 @@ io.use((socket, next) => {
   socket.username = username;
 
   const champion = socket.handshake.auth.champion;
-  socket.champion = (champion === 'lux') ? 'lux' : (champion === 'ashe') ? 'ashe' : 'garen';
+  if (champion === 'lux') socket.champion = 'lux';
+  else if (champion === 'ashe') socket.champion = 'ashe';
+  else if (champion === 'aatrox') socket.champion = 'aatrox';
+  else socket.champion = 'garen';
 
   next();
 });
@@ -2435,7 +2603,7 @@ io.on('connection', (socket) => {
   };
 
   const teamName = team === 'blue' ? '블루팀' : '레드팀';
-  const champNameMap = { lux: '럭스', ashe: '애쉬', garen: '가렌' };
+  const champNameMap = { lux: '럭스', ashe: '애쉬', aatrox: '아트록스', garen: '가렌' };
   const champName = champNameMap[champion] || '가렌';
   io.emit('chatMessage', {
     username: '시스템',
@@ -2505,11 +2673,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 애쉬 Q는 자동 발동 스킬이라 수동 시전 없음
-    if (p.champion === 'ashe') return;
-
-    // 가렌 Q (기존 로직)
+    // 애쉬/아트록스는 Q 수동 시전 없음
     if (p.champion !== 'garen') return;
+
     if (now - p.lastQTime < p.qCooldown) return;
 
     p.lastQTime = now;
@@ -2597,7 +2763,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 가렌 W (기존 로직)
+    // 가렌 W (기존 로직) / 아트록스는 아직 미구현이라 아무 동작 없음
     if (p.champion !== 'garen') return;
     if (now - p.lastWTime < p.wCooldown) return;
 
@@ -2666,7 +2832,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 가렌 E (기존 로직)
+    // 가렌 E (기존 로직) / 아트록스는 아직 미구현
     if (p.champion !== 'garen') return;
     if (now - p.lastETime < p.eCooldown) return;
 
@@ -2735,7 +2901,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 가렌 R (기존 로직)
+    // 가렌 R (기존 로직) / 아트록스는 아직 미구현
     const caster = p;
     if (caster.champion !== 'garen') return;
     if (now - caster.lastRTime < caster.rCooldown) return;
@@ -2865,7 +3031,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 가렌 평타 (근접, 기존 로직)
+    // 가렌 / 아트록스 평타 (근접, 공용 로직)
     let damage = p.attackDamage;
     if (p.hasQBuff) {
       damage *= 1.5;
