@@ -66,7 +66,7 @@ const CHAMPION_BASE_STATS = {
     baseMoveSpeed: 0.6133      // 실제 340 → 초당 36.8유닛(0.6133 * 60)
   },
   lux: {
-    hp: 580,
+    hp: 630,                   // 기존 580 + 50
     hpRegen: 5.5,
     mana: 440,
     manaRegen: 9,
@@ -77,7 +77,7 @@ const CHAMPION_BASE_STATS = {
     baseMoveSpeed: 0.5953      // 실제 330 * 0.10824 / 60
   },
   ashe: {
-    hp: 610,
+    hp: 660,                   // 기존 610 + 50
     hpRegen: 3.5,
     mana: 280,
     manaRegen: 6.97,
@@ -128,7 +128,7 @@ const LUX_R_MANA_COST = 100;
 const LUX_R_DAMAGE = 300;
 const LUX_R_RANGE = 680;
 const LUX_R_WIDTH = 40;
-const LUX_R_CAST_DELAY = 700; // 선딜(수치 미지정, 임의 설정)
+const LUX_R_CAST_DELAY = 0; // 선딜 제거(즉시 발동)
 const LUX_R_COOLDOWN = 60000;
 const LUX_R_BEAM_VISUAL_DURATION = 300;
 
@@ -170,7 +170,7 @@ const ASHE_E_HAWK_DURATION = 1500;
 // 애쉬 R(마법의 수정 화살) - 맵 끝까지 날아감, 판정범위는 250 * 0.2 환산
 const ASHE_R_MANA_COST = 100;
 const ASHE_R_DAMAGE = 300;
-const ASHE_R_SPEED = 1500;
+const ASHE_R_SPEED = 1200; // 기존 1500 * 0.8
 const ASHE_R_COOLDOWN = 100000;
 const ASHE_R_HIT_RADIUS = 50;
 const ASHE_R_MIN_STUN = 1000;
@@ -1091,24 +1091,9 @@ app.get('/', (req, res) => {
               if (cp.isSlowed) baseSpeed *= 0.6;
               if (cp.isRooted || cp.isStunned) baseSpeed = 0;
 
-              if (!cp.isEActive) {
-                if (cp.dirX < 0 && cp.dirY < 0) {
-                  cp.renderAngle = -140 * (Math.PI / 180);
-                } else if (cp.dirX > 0 && cp.dirY < 0) {
-                  cp.renderAngle = -40 * (Math.PI / 180);
-                } else if (cp.dirX < 0 && cp.dirY > 0) {
-                  cp.renderAngle = 140 * (Math.PI / 180);
-                } else if (cp.dirX > 0 && cp.dirY > 0) {
-                  cp.renderAngle = 40 * (Math.PI / 180);
-                } else if (cp.dirX < 0) {
-                  cp.renderAngle = -140 * (Math.PI / 180);
-                } else if (cp.dirX > 0) {
-                  cp.renderAngle = -40 * (Math.PI / 180);
-                } else if (cp.dirY < 0) {
-                  cp.renderAngle = -90 * (Math.PI / 180);
-                } else if (cp.dirY > 0) {
-                  cp.renderAngle = 90 * (Math.PI / 180);
-                }
+              // 8방향(상하좌우 + 대각선)을 정확한 각도로 표시
+              if (!cp.isEActive && (cp.dirX !== 0 || cp.dirY !== 0)) {
+                cp.renderAngle = Math.atan2(cp.dirY, cp.dirX);
               }
 
               if ((cp.dirX !== 0 || cp.dirY !== 0) && baseSpeed > 0) {
@@ -2392,7 +2377,7 @@ io.on('connection', (socket) => {
     isEActive: false,
     eStartTime: 0,
     eHitCount: {},
-    eDamageLevel: 3.8,
+    eDamageLevel: 2.5333, // 기존 3.8 * 2/3 (너프)
 
     rCooldown: champion === 'lux' ? LUX_R_COOLDOWN : (champion === 'ashe' ? ASHE_R_COOLDOWN : 140000),
     lastRTime: 0,
@@ -2698,7 +2683,7 @@ io.on('connection', (socket) => {
     const now = Date.now();
 
     if (p.champion === 'lux') {
-      if (p.isCastingR) return; // 이미 시전(선딜) 중이면 무시
+      if (p.isCastingR) return; // 이미 시전 중이면 무시
       if (now - p.lastRTime < p.rCooldown) return;
       if (p.mana < LUX_R_MANA_COST) return;
 
@@ -2708,10 +2693,16 @@ io.on('connection', (socket) => {
 
       p.lastRTime = now;
       p.mana -= LUX_R_MANA_COST;
-      p.isCastingR = true;
-      p.rCastEndTime = now + LUX_R_CAST_DELAY;
       p.rCastDirX = dx;
       p.rCastDirY = dy;
+
+      if (LUX_R_CAST_DELAY <= 0) {
+        // 선딜 없이 즉시 발동
+        fireLuxR(p, socket.id, now);
+      } else {
+        p.isCastingR = true;
+        p.rCastEndTime = now + LUX_R_CAST_DELAY;
+      }
       return;
     }
 
