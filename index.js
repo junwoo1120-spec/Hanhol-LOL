@@ -922,7 +922,7 @@ app.get('/', (req, res) => {
           mapImage.src = 'web.webp';
 
           const atroxImage = new Image();
-          atroxImage.src = 'atrox.png';
+          atroxImage.src = 'assets/atrox.png';
 
           let serverPlayers = {};
           let clientPlayers = {};
