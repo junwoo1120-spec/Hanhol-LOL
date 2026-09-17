@@ -921,6 +921,9 @@ app.get('/', (req, res) => {
           const mapImage = new Image();
           mapImage.src = 'web.webp';
 
+          const atroxImage = new Image();
+          atroxImage.src = 'atrox.png';
+
           let serverPlayers = {};
           let clientPlayers = {};
           let serverProjectiles = {};
@@ -1395,172 +1398,63 @@ app.get('/', (req, res) => {
             ctx.fill();
           }
 
-          // 아트록스 전용 대검 - 참고 이미지와 최대한 동일하게: 손잡이 → 붉은 다이아몬드 가드 →
-          // 붉은 몸체(검은 중앙선) → 끝부분의 검게 갈라진 톱니 모양 칼끝
+          // 아트록스 전용: 빨강/검정 대검
           function renderAatroxBlade(ctx) {
             ctx.shadowColor = '#ff2222';
             ctx.shadowBlur = 6;
 
-            // 손잡이(검은 쥠 부분)
-            ctx.fillStyle = '#1c1c1c';
-            ctx.fillRect(3, -1, 2.6, 2);
+            ctx.fillStyle = '#2b2b2b';
+            ctx.fillRect(3, -0.8, 3, 1.6);
 
-            // 가드 - 붉은 다이아몬드
-            ctx.fillStyle = '#8f1414';
-            ctx.strokeStyle = '#150202';
-            ctx.lineWidth = 0.35;
+            ctx.fillStyle = '#661111';
             ctx.beginPath();
-            ctx.moveTo(5.6, -2.4); ctx.lineTo(7.2, 0); ctx.lineTo(5.6, 2.4); ctx.lineTo(4.2, 0);
+            ctx.moveTo(6, -3); ctx.lineTo(7.5, 0); ctx.lineTo(6, 3); ctx.lineTo(4.5, 0);
             ctx.closePath();
             ctx.fill();
-            ctx.stroke();
 
-            // 날 몸체 - 붉은색 + 가운데를 가로지르는 검은 중앙선
             ctx.fillStyle = '#c81e1e';
             ctx.beginPath();
-            ctx.moveTo(7.2, -1.8);
-            ctx.lineTo(14.5, -1.2);
-            ctx.lineTo(14.5, 1.2);
-            ctx.lineTo(7.2, 1.8);
+            ctx.moveTo(7.5, -1.8);
+            ctx.lineTo(18, -1.2);
+            ctx.lineTo(21, 0);
+            ctx.lineTo(18, 1.2);
+            ctx.lineTo(7.5, 1.8);
             ctx.closePath();
             ctx.fill();
-            ctx.stroke();
 
-            ctx.fillStyle = '#161616';
-            ctx.fillRect(7.6, -0.45, 6.6, 0.9);
-
-            // 칼끝 - 검게 갈라진 톱니/스파이크 뭉치 (아트록스 특유의 울퉁불퉁한 칼끝)
             ctx.fillStyle = '#1a1a1a';
-            ctx.beginPath();
-            ctx.moveTo(14, -1.9);
-            ctx.lineTo(17.5, -3.6);
-            ctx.lineTo(16.6, -1.9);
-            ctx.lineTo(20, -3.2);
-            ctx.lineTo(18.4, -1.1);
-            ctx.lineTo(21.8, -1.6);
-            ctx.lineTo(19.5, 0);
-            ctx.lineTo(21.8, 1.6);
-            ctx.lineTo(18.4, 1.1);
-            ctx.lineTo(20, 3.2);
-            ctx.lineTo(16.6, 1.9);
-            ctx.lineTo(17.5, 3.6);
-            ctx.lineTo(14, 1.9);
-            ctx.closePath();
-            ctx.fill();
-            ctx.strokeStyle = '#c81e1e';
-            ctx.lineWidth = 0.4;
-            ctx.stroke();
+            ctx.fillRect(8, -0.6, 10, 1.2);
           }
 
-          // 아트록스 전용: 참고 이미지와 최대한 동일하게 - 그림자 레이어가 있는 큰 회색 뿔 +
-          // 가운데 지그재그 왕관 장식 + 옆 귀 덮개 + 톱니 모양 붉은 박쥐 날개 + 어깨 견갑
-          // flap: 날개 퍼덕임 각도(라디안). 위/아래 날개가 서로 반대로 여닫히며 퍼덕인다. 기본값 0이면 정지(초상화용).
-          function renderAatroxCapeAndHorns(ctx, flap = 0) {
-            // --- 날개(망토): 그림자 레이어 + 톱니처럼 갈라진 붉은 박쥐 날개 ---
-            [-1, 1].forEach(side => {
-              ctx.save();
-              ctx.translate(-2.3, side * 1.4);
-              ctx.rotate(side * flap);
-
-              // 그림자 레이어(어두운 적갈색)
-              ctx.fillStyle = 'rgba(80, 45, 45, 0.55)';
-              ctx.beginPath();
-              ctx.moveTo(0, 0);
-              ctx.quadraticCurveTo(-4.5, side * 2, -8.5, side * 5.5);
-              ctx.quadraticCurveTo(-7.5, side * 3.5, -5.5, side * 2.5);
-              ctx.quadraticCurveTo(-4, side * 1, -2, side * 0.3);
-              ctx.closePath();
-              ctx.fill();
-
-              // 톱니 모양 붉은 날개 (참고 이미지처럼 크게 갈라진 3개의 날개 끝)
-              ctx.fillStyle = '#9c1f1f';
-              ctx.strokeStyle = '#2a0505';
-              ctx.lineWidth = 0.35;
-              ctx.beginPath();
-              ctx.moveTo(0, 0);
-              ctx.lineTo(-3.2, side * 1.2);
-              ctx.lineTo(-5, side * 3);
-              ctx.lineTo(-9, side * 4.5);
-              ctx.lineTo(-6.5, side * 3.8);
-              ctx.lineTo(-8.5, side * 6.5);
-              ctx.lineTo(-6, side * 5.5);
-              ctx.lineTo(-7, side * 9);
-              ctx.lineTo(-4.5, side * 6.5);
-              ctx.lineTo(-3.5, side * 3);
-              ctx.lineTo(-1.5, side * 1);
-              ctx.closePath();
-              ctx.fill();
-              ctx.stroke();
-              ctx.restore();
-            });
-
-            // 어깨 견갑(날개가 붙는 자리의 작은 회색 장식판)
-            ctx.fillStyle = '#8a8a8a';
-            ctx.strokeStyle = '#2e2e2e';
-            ctx.lineWidth = 0.3;
-            [-1, 1].forEach(side => {
-              ctx.beginPath();
-              ctx.moveTo(-1.7, side * 1.7);
-              ctx.lineTo(-0.7, side * 2.2);
-              ctx.lineTo(-0.2, side * 1.1);
-              ctx.lineTo(-1.2, side * 0.6);
-              ctx.closePath();
-              ctx.fill();
-              ctx.stroke();
-            });
-
-            // --- 뿔(투구): 그림자 레이어 + 앞쪽 큰 회색 뿔 ---
-            ctx.fillStyle = 'rgba(110, 110, 110, 0.55)';
-            [-1, 1].forEach(side => {
-              ctx.beginPath();
-              ctx.moveTo(side * 1, -2.6);
-              ctx.quadraticCurveTo(side * 7.4, -5, side * 7.6, -10.8);
-              ctx.quadraticCurveTo(side * 6.2, -12.6, side * 4.8, -10.9);
-              ctx.quadraticCurveTo(side * 2.8, -6.6, side * -0.5, -3.3);
-              ctx.closePath();
-              ctx.fill();
-            });
-
-            ctx.fillStyle = '#9a9a9a';
-            ctx.strokeStyle = '#2e2e2e';
-            ctx.lineWidth = 0.35;
-            [-1, 1].forEach(side => {
-              ctx.beginPath();
-              ctx.moveTo(side * 1.3, -3);
-              ctx.quadraticCurveTo(side * 6.5, -5.3, side * 6.3, -9.8);
-              ctx.quadraticCurveTo(side * 5.2, -11.3, side * 4.2, -9.6);
-              ctx.quadraticCurveTo(side * 2.8, -6, side * -0.2, -3.4);
-              ctx.closePath();
-              ctx.fill();
-              ctx.stroke();
-            });
-
-            // 두 뿔을 잇는 중앙 왕관(지그재그 노치)
-            ctx.fillStyle = '#b0b0b0';
+          // 아트록스 전용: 회색 뿔 + 빨간 망토(박쥐날개)
+          function renderAatroxCapeAndHorns(ctx) {
+            ctx.fillStyle = '#8c1c1c';
             ctx.beginPath();
-            ctx.moveTo(-3.4, -2.6);
-            ctx.lineTo(-1.7, -4.4);
-            ctx.lineTo(-0.6, -2.4);
-            ctx.lineTo(0.6, -2.4);
-            ctx.lineTo(1.7, -4.4);
-            ctx.lineTo(3.4, -2.6);
-            ctx.quadraticCurveTo(0, -1, -3.4, -2.6);
+            ctx.moveTo(-2, -1);
+            ctx.quadraticCurveTo(-9, -6, -8, -2);
+            ctx.quadraticCurveTo(-6, 1, -2, 3);
             ctx.closePath();
             ctx.fill();
-            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(-2, 1);
+            ctx.quadraticCurveTo(-9, 6, -8, 2);
+            ctx.quadraticCurveTo(-6, -1, -2, -3);
+            ctx.closePath();
+            ctx.fill();
 
-            // 옆 귀 덮개(얼굴 옆쪽 작은 회색 조각)
             ctx.fillStyle = '#8a8a8a';
-            [-1, 1].forEach(side => {
-              ctx.save();
-              ctx.translate(side * 4.6, -0.8);
-              ctx.rotate(side * 0.5);
-              ctx.beginPath();
-              ctx.ellipse(0, 0, 1.3, 2.1, 0, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.stroke();
-              ctx.restore();
-            });
+            ctx.beginPath();
+            ctx.moveTo(-1, -3.5);
+            ctx.quadraticCurveTo(-5, -8, -3, -9.5);
+            ctx.quadraticCurveTo(0, -6, 1, -3.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-1, 3.5);
+            ctx.quadraticCurveTo(-5, 8, -3, 9.5);
+            ctx.quadraticCurveTo(0, 6, 1, 3.5);
+            ctx.closePath();
+            ctx.fill();
           }
 
           function drawSimpleGaren(ctx, p) {
@@ -1742,55 +1636,58 @@ app.get('/', (req, res) => {
               drawLuxShieldRing(ctx, 11);
             }
 
-            // 날개 퍼덕임: 이동 여부와 상관없이 항상 잔잔하게 퍼덕이는 애니메이션(다른 움직임 연출은 추가하지 않음)
-            const aatroxFlap = Math.sin(Date.now() / 220) * 0.3 + 0.15;
-            renderAatroxCapeAndHorns(ctx, aatroxFlap);
-
-            ctx.fillStyle = '#f7f2e8';
-            ctx.beginPath();
-            ctx.arc(0, 0, 5.4, 0, Math.PI * 2);
-            ctx.fill();
-
-            // 감은 눈 (양쪽 > <, 둥글게 휘어진 곡선) + 코/수염 점 + 작은 입
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 0.55;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(-2.7, -1.7);
-            ctx.quadraticCurveTo(-1.4, -1.1, -2.7, -0.5);
-            ctx.moveTo(2.7, -1.7);
-            ctx.quadraticCurveTo(1.4, -1.1, 2.7, -0.5);
-            ctx.stroke();
-
-            ctx.fillStyle = '#333';
-            ctx.beginPath();
-            ctx.arc(-0.6, 0.7, 0.28, 0, Math.PI * 2);
-            ctx.arc(0.6, 0.7, 0.28, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.moveTo(-0.7, 1.5);
-            ctx.quadraticCurveTo(0, 2.1, 0.7, 1.5);
-            ctx.stroke();
-
             let swingAngle = 0;
             if (p.isAttacking) {
               swingAngle = -1.2 + (p.attackProgress * 2.4);
             }
 
-            ctx.save();
-            ctx.rotate(swingAngle);
+            if (atroxImage.complete && atroxImage.naturalWidth !== 0) {
+              // 이미지 로드 완료: atrox.png로 캐릭터 렌더링
+              const size = 24; // 캐릭터 크기(px), 원하는 값으로 조절
+              ctx.drawImage(atroxImage, -size / 2, -size / 2, size, size);
 
-            if (p.isAttacking) {
-              ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
+              // 공격 시 휘두르는 이펙트는 유지
+              if (p.isAttacking) {
+                ctx.save();
+                ctx.rotate(swingAngle);
+                ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
+                ctx.fill();
+                ctx.restore();
+              }
+            } else {
+              // 이미지 로딩 전 폴백: 기존 기본도형 렌더링
+              renderAatroxCapeAndHorns(ctx);
+
+              ctx.fillStyle = '#f5f0e6';
               ctx.beginPath();
-              ctx.moveTo(0, 0);
-              ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
+              ctx.arc(0, 0, 5, 0, Math.PI * 2);
               ctx.fill();
-            }
 
-            renderAatroxBlade(ctx);
-            ctx.restore();
+              // 살짝 웃는 눈 (> <)
+              ctx.strokeStyle = '#333';
+              ctx.lineWidth = 0.5;
+              ctx.beginPath();
+              ctx.moveTo(-2.2, -1.6); ctx.lineTo(-1, -1);
+              ctx.moveTo(-2.2, -0.4); ctx.lineTo(-1, -1);
+              ctx.stroke();
+
+              ctx.save();
+              ctx.rotate(swingAngle);
+
+              if (p.isAttacking) {
+                ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
+                ctx.fill();
+              }
+
+              renderAatroxBlade(ctx);
+              ctx.restore();
+            }
           }
 
           function drawLuxRCastGlow(ctx, p) {
