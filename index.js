@@ -924,27 +924,62 @@ app.get('/', (req, res) => {
           const atroxImage = new Image();
           let atroxImageClean = null;
 
-          function removeWhiteBackground(img, threshold = 235) {
-            const offCanvas = document.createElement('canvas');
-            offCanvas.width = img.naturalWidth;
-            offCanvas.height = img.naturalHeight;
-            const offCtx = offCanvas.getContext('2d');
-            offCtx.drawImage(img, 0, 0);
+          // 이미지 가장자리(테두리)부터 시작해서 밝은 색(흰색/회색 체크무늬 등)이
+          // 서로 이어져 있는 영역을 전부 투명하게 지운다. 캐릭터는 보통 검은
+          // 테두리 선으로 둘러싸여 있어서 그 선이 "벽" 역할을 해 안쪽 색은 보존됨.
+          function removeBackgroundFloodFill(img, brightnessCutoff = 150) {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
 
-            const imageData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+            const width = canvas.width, height = canvas.height;
+            const imageData = ctx.getImageData(0, 0, width, height);
             const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-              const r = data[i], g = data[i + 1], b = data[i + 2];
-              if (r > threshold && g > threshold && b > threshold) {
-                data[i + 3] = 0; // 흰색에 가까운 픽셀은 투명 처리
-              }
+
+            const visited = new Uint8Array(width * height);
+            const stackX = [];
+            const stackY = [];
+
+            for (let x = 0; x < width; x++) {
+              stackX.push(x); stackY.push(0);
+              stackX.push(x); stackY.push(height - 1);
             }
-            offCtx.putImageData(imageData, 0, 0);
-            return offCanvas;
+            for (let y = 0; y < height; y++) {
+              stackX.push(0); stackY.push(y);
+              stackX.push(width - 1); stackY.push(y);
+            }
+
+            while (stackX.length) {
+              const x = stackX.pop();
+              const y = stackY.pop();
+              if (x < 0 || y < 0 || x >= width || y >= height) continue;
+
+              const vIdx = y * width + x;
+              if (visited[vIdx]) continue;
+              visited[vIdx] = 1;
+
+              const i = vIdx * 4;
+              if (data[i + 3] === 0) continue;
+
+              const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+              if (brightness < brightnessCutoff) continue; // 어두운 테두리/선은 여기서 멈춤
+
+              data[i + 3] = 0; // 투명 처리
+
+              stackX.push(x + 1); stackY.push(y);
+              stackX.push(x - 1); stackY.push(y);
+              stackX.push(x); stackY.push(y + 1);
+              stackX.push(x); stackY.push(y - 1);
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            return canvas;
           }
 
           atroxImage.onload = () => {
-            atroxImageClean = removeWhiteBackground(atroxImage);
+            atroxImageClean = removeBackgroundFloodFill(atroxImage);
           };
           atroxImage.src = 'assets/atrox.png';
 
