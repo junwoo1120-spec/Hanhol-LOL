@@ -53,6 +53,9 @@ const DEV_USERNAME = '박준우';
 // 사거리·이동속도는 게임 내 좌표 스케일이 달라서, 가렌의 "실제 스탯 → 게임 내 적용값" 비율을 그대로 다른 챔피언에도 적용해서 환산함.
 //   사거리 비율: 35(가렌 게임 내 사거리) / 175(가렌 실제 사거리) = 0.2
 //   이동속도 비율: 36.8(가렌 초당 이동거리) / 340(가렌 실제 이동속도) ≈ 0.10824
+// 공격속도(평타 쿨타임) 비율: 럭스의 실제 기본 공속 0.625를 게임 내 기존 고정값 1000ms(=공속 1.0)에 대응시켜서 환산 계수 산출
+//   환산 계수 = 1.0 / 0.625 = 1.6
+//   attackCooldown(ms) = 1000 / (실제 기본 공속 * 1.6)
 const CHAMPION_BASE_STATS = {
   garen: {
     hp: 680,
@@ -63,7 +66,8 @@ const CHAMPION_BASE_STATS = {
     armor: 38,
     magicResist: 32,
     attackRange: 35,           // 실제 175 (그대로 유지된 값)
-    baseMoveSpeed: 0.6133      // 실제 340 → 초당 36.8유닛(0.6133 * 60)
+    baseMoveSpeed: 0.6133,     // 실제 340 → 초당 36.8유닛(0.6133 * 60)
+    attackCooldown: 1000       // 기존 고정값 유지 (실제 기본 공속 0.625 기준)
   },
   lux: {
     hp: 630,                   // 기존 580 + 50
@@ -74,7 +78,8 @@ const CHAMPION_BASE_STATS = {
     armor: 21,
     magicResist: 30,
     attackRange: 110,          // 실제 550 * 0.2
-    baseMoveSpeed: 0.5953      // 실제 330 * 0.10824 / 60
+    baseMoveSpeed: 0.5953,     // 실제 330 * 0.10824 / 60
+    attackCooldown: 1000       // 실제 기본 공속 0.625 → 기준값 그대로
   },
   ashe: {
     hp: 660,                   // 기존 610 + 50
@@ -85,7 +90,8 @@ const CHAMPION_BASE_STATS = {
     armor: 26,
     magicResist: 33,
     attackRange: 120,          // 실제 600 * 0.2
-    baseMoveSpeed: 0.5863      // 실제 325 * 0.10824 / 60
+    baseMoveSpeed: 0.5863,     // 실제 325 * 0.10824 / 60
+    attackCooldown: 1000       // 기존 동작 유지 (애쉬 공속 변경은 별도 요청 시 반영)
   },
   aatrox: {
     hp: 650,
@@ -96,7 +102,8 @@ const CHAMPION_BASE_STATS = {
     armor: 38,
     magicResist: 32,
     attackRange: 35,           // 실제 175 * 0.2
-    baseMoveSpeed: 0.62235     // 실제 345 * 0.10824 / 60
+    baseMoveSpeed: 0.62235,    // 실제 345 * 0.10824 / 60
+    attackCooldown: 960        // 실제 기본 공속 0.651 * 1.6 ≈ 1.0416 → 1000/1.0416 ≈ 960
   }
 };
 
@@ -3034,7 +3041,8 @@ io.on('connection', (socket) => {
     const now = Date.now();
     if (!p || p.isDead || p.isStunned) return;
 
-    const attackCooldown = (p.champion === 'ashe' && now < p.attackSpeedBoostEndTime) ? ASHE_Q_ATTACK_COOLDOWN_BOOSTED : 1000;
+    const baseAttackCooldown = (CHAMPION_BASE_STATS[p.champion] && CHAMPION_BASE_STATS[p.champion].attackCooldown) || 1000;
+    const attackCooldown = (p.champion === 'ashe' && now < p.attackSpeedBoostEndTime) ? ASHE_Q_ATTACK_COOLDOWN_BOOSTED : baseAttackCooldown;
 
     if (p.isAttacking || p.isEActive || (now - p.lastAttackTime < attackCooldown)) return;
 
