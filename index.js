@@ -1620,76 +1620,40 @@ app.get('/', (req, res) => {
           }
 
           function drawSimpleAatrox(ctx, p) {
-            if (p.isDead) return;
+  if (p.isDead) return;
 
-            if (p.hasShieldPhase || p.hasDamageReducePhase) {
-              ctx.save();
-              ctx.shadowColor = '#FFD700';
-              ctx.shadowBlur = 15;
-              ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
-              ctx.lineWidth = 2.5;
-              ctx.beginPath();
-              ctx.arc(0, 0, 11, 0, Math.PI * 2);
-              ctx.stroke();
-              ctx.restore();
-            } else if (p.shield > 0) {
-              drawLuxShieldRing(ctx, 11);
-            }
+  // 보호막/피해감소 상태 효과 링은 그대로 유지
+  if (p.hasShieldPhase || p.hasDamageReducePhase) {
+    ctx.save();
+    ctx.shadowColor = '#FFD700';
+    ctx.shadowBlur = 15;
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  } else if (p.shield > 0) {
+    drawLuxShieldRing(ctx, 11);
+  }
 
-            let swingAngle = 0;
-            if (p.isAttacking) {
-              swingAngle = -1.2 + (p.attackProgress * 2.4);
-            }
+  // 공격 중일 때 붉은 스윙 이펙트도 유지
+  if (p.isAttacking) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
+    ctx.fill();
+    ctx.restore();
+  }
 
-            if (atroxImage.complete && atroxImage.naturalWidth !== 0) {
-              // 이미지 로드 완료: atrox.png로 캐릭터 렌더링
-              const size = 24; // 캐릭터 크기(px), 원하는 값으로 조절
-              ctx.drawImage(atroxImage, -size / 2, -size / 2, size, size);
-
-              // 공격 시 휘두르는 이펙트는 유지
-              if (p.isAttacking) {
-                ctx.save();
-                ctx.rotate(swingAngle);
-                ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
-                ctx.fill();
-                ctx.restore();
-              }
-            } else {
-              // 이미지 로딩 전 폴백: 기존 기본도형 렌더링
-              renderAatroxCapeAndHorns(ctx);
-
-              ctx.fillStyle = '#f5f0e6';
-              ctx.beginPath();
-              ctx.arc(0, 0, 5, 0, Math.PI * 2);
-              ctx.fill();
-
-              // 살짝 웃는 눈 (> <)
-              ctx.strokeStyle = '#333';
-              ctx.lineWidth = 0.5;
-              ctx.beginPath();
-              ctx.moveTo(-2.2, -1.6); ctx.lineTo(-1, -1);
-              ctx.moveTo(-2.2, -0.4); ctx.lineTo(-1, -1);
-              ctx.stroke();
-
-              ctx.save();
-              ctx.rotate(swingAngle);
-
-              if (p.isAttacking) {
-                ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
-                ctx.fill();
-              }
-
-              renderAatroxBlade(ctx);
-              ctx.restore();
-            }
-          }
-
+  // 벡터 그림 대신 실제 이미지로 그리기
+  const size = 24; // 캐릭터 표시 크기 — 너무 크거나 작으면 이 숫자만 조절
+  if (atroxImage.complete && atroxImage.naturalWidth > 0) {
+    ctx.drawImage(atroxImage, -size / 2, -size / 2, size, size);
+  }
+}
           function drawLuxRCastGlow(ctx, p) {
             if (!p.isCastingR) return;
             ctx.save();
