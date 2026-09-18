@@ -922,6 +922,30 @@ app.get('/', (req, res) => {
           mapImage.src = 'web.webp';
 
           const atroxImage = new Image();
+          let atroxImageClean = null;
+
+          function removeWhiteBackground(img, threshold = 235) {
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = img.naturalWidth;
+            offCanvas.height = img.naturalHeight;
+            const offCtx = offCanvas.getContext('2d');
+            offCtx.drawImage(img, 0, 0);
+
+            const imageData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i], g = data[i + 1], b = data[i + 2];
+              if (r > threshold && g > threshold && b > threshold) {
+                data[i + 3] = 0; // 흰색에 가까운 픽셀은 투명 처리
+              }
+            }
+            offCtx.putImageData(imageData, 0, 0);
+            return offCanvas;
+          }
+
+          atroxImage.onload = () => {
+            atroxImageClean = removeWhiteBackground(atroxImage);
+          };
           atroxImage.src = 'assets/atrox.png';
 
           let serverPlayers = {};
@@ -1622,6 +1646,17 @@ app.get('/', (req, res) => {
           function drawSimpleAatrox(ctx, p) {
   if (p.isDead) return;
 
+  ctx.save();
+
+  // 부모(호출부)에서 이미 ctx.rotate(p.renderAngle)를 걸어놨기 때문에,
+  // 이미지가 그 회전을 그대로 따라가며 계속 도는 것을 막기 위해 되돌림
+  if (!p.isEActive) ctx.rotate(-p.renderAngle);
+
+  // 좌우 이동일 때만 좌우 반전, 위/아래 이동은 반전하지 않음
+  if (Math.cos(p.renderAngle) < 0) {
+    ctx.scale(-1, 1);
+  }
+
   // 보호막/피해감소 상태 효과 링은 그대로 유지
   if (p.hasShieldPhase || p.hasDamageReducePhase) {
     ctx.save();
@@ -1648,11 +1683,14 @@ app.get('/', (req, res) => {
     ctx.restore();
   }
 
-  // 벡터 그림 대신 실제 이미지로 그리기
+  // 흰배경 제거된 이미지로 그리기 (아직 처리 전이면 원본으로 대체)
   const size = 24; // 캐릭터 표시 크기 — 너무 크거나 작으면 이 숫자만 조절
-  if (atroxImage.complete && atroxImage.naturalWidth > 0) {
-    ctx.drawImage(atroxImage, -size / 2, -size / 2, size, size);
+  const imgToDraw = atroxImageClean || (atroxImage.complete && atroxImage.naturalWidth > 0 ? atroxImage : null);
+  if (imgToDraw) {
+    ctx.drawImage(imgToDraw, -size / 2, -size / 2, size, size);
   }
+
+  ctx.restore();
 }
           function drawLuxRCastGlow(ctx, p) {
             if (!p.isCastingR) return;
