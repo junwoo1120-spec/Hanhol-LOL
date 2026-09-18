@@ -990,6 +990,13 @@ app.get('/', (req, res) => {
           };
           atroxImage.src = 'assets/atrox.png';
 
+          const atroxSwordImage = new Image();
+          let atroxSwordImageClean = null;
+          atroxSwordImage.onload = () => {
+            atroxSwordImageClean = removeBackgroundFloodFill(atroxSwordImage);
+          };
+          atroxSwordImage.src = 'assets/atrox_sword.png';
+
           let serverPlayers = {};
           let clientPlayers = {};
           let serverProjectiles = {};
@@ -1714,22 +1721,54 @@ app.get('/', (req, res) => {
     drawLuxShieldRing(ctx, 11);
   }
 
-  // 공격 중일 때 붉은 스윙 이펙트도 유지
-  if (p.isAttacking) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(220, 30, 30, 0.4)';
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.arc(0, 0, 20, -1.2, -1.2 + (p.attackProgress * 2.4));
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // 흰배경 제거된 이미지로 그리기 (아직 처리 전이면 원본으로 대체)
-  const size = 24; // 캐릭터 표시 크기 — 너무 크거나 작으면 이 숫자만 조절
+  // 공격 안 할 땐 보호막 등 링 이펙트만, 공격 중엔 아래에서 칼+잔상을 따로 그림
+  const size = 24; // 캐릭터(몸통) 표시 크기 — 너무 크거나 작으면 이 숫자만 조절
   const imgToDraw = atroxImageClean || (atroxImage.complete && atroxImage.naturalWidth > 0 ? atroxImage : null);
   if (imgToDraw) {
     ctx.drawImage(imgToDraw, -size / 2, -size / 2, size, size);
+  }
+
+  // 칼: 몸통 이미지와 별도로 휘두르는 애니메이션 + 검붉은 잔상 트레일
+  if (p.isAttacking) {
+    const startAngle = -1.2;
+    const swingAngle = -1.2 + (p.attackProgress * 2.4);
+
+    // 잔상 궤적: 시작각~현재각 사이를 여러 조각으로 나눠서
+    // 뒤쪽(오래된 잔상)은 검게 옅게, 칼날에 가까울수록 진한 빨강으로 그라데이션 표현
+    const trailSegments = 14;
+    for (let i = 0; i < trailSegments; i++) {
+      const t0 = i / trailSegments;
+      const t1 = (i + 1) / trailSegments;
+      const a0 = startAngle + (swingAngle - startAngle) * t0;
+      const a1 = startAngle + (swingAngle - startAngle) * t1;
+      const alpha = 0.05 + 0.55 * t1;           // 칼날 쪽일수록 진하게
+      const redAmount = Math.round(50 + 100 * t1); // 뒤쪽은 검은빛, 앞쪽은 검붉은빛
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(' + redAmount + ', 0, 0, ' + alpha + ')';
+      ctx.shadowColor = 'rgba(80, 0, 0, ' + alpha + ')';
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 14;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, a0, a1);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 실제 칼 이미지: 손 위치(캐릭터 중심 기준 오프셋) 기준으로 회전
+    const swordSize = 20;   // 칼 이미지 크기 — 필요시 조절
+    const handOffsetX = 6;  // 칼을 쥔 손 위치 — 필요시 조절
+    const handOffsetY = -2; // 칼을 쥔 손 위치 — 필요시 조절
+
+    ctx.save();
+    ctx.translate(handOffsetX, handOffsetY);
+    ctx.rotate(swingAngle);
+    const swordImgToDraw = atroxSwordImageClean || (atroxSwordImage.complete && atroxSwordImage.naturalWidth > 0 ? atroxSwordImage : null);
+    if (swordImgToDraw) {
+      ctx.drawImage(swordImgToDraw, 0, -swordSize / 2, swordSize, swordSize);
+    }
+    ctx.restore();
   }
 
   ctx.restore();
