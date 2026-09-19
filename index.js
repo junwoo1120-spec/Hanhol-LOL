@@ -1730,13 +1730,14 @@ app.get('/', (req, res) => {
 
   // 칼: 몸통과 완전히 분리된 레이어. 평소에도 "든 자세"로 항상 보이고,
   // 공격할 때만 그 위치를 기준으로 0 → 70도까지 아래로 내려감(공격 끝나면 다시 원위치).
-  const pivotX = 3;         // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 손에 안 붙으면 이 값을 줄이세요.
-  const pivotY = -2;        // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 필요시 조절.
-  const swordDrawSize = 12; // 칼 이미지 표시 크기 — 몸통(24)보다 훨씬 작아야 손에 붙어 보임. 필요시 조절.
+  const pivotX = 6;         // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 오른쪽으로 이동.
+  const pivotY = 1;         // 회전축(칼 쥔 손 위치) — 머리 위로 안 뜨게 몸통 중앙 높이로 내림.
+  const swordDrawSize = 16; // 칼 이미지 표시 크기 — 키움. 필요시 조절.
 
   // 칼 이미지 안에서 "손잡이 끝(=회전축)"의 위치를 이미지 가로/세로 비율(0~1)로 지정
-  const swordPivotFracX = 0.1; // 필요시 조절
-  const swordPivotFracY = 0.9; // 필요시 조절
+  // fracY를 0.9에서 낮춰서, 평소(회전 0도)에 이미지가 머리 위로 거의 다 삐져나가던 문제를 줄임
+  const swordPivotFracX = 0.2; // 필요시 조절
+  const swordPivotFracY = 0.7; // 필요시 조절
 
   // 칼 이미지 자체가 비스듬히 그려져 있어서, 회전 0도일 때도 보정이 필요하면 여기서 조절 (라디안)
   const swordBaseAngle = 0; // 필요시 조절
@@ -1747,19 +1748,36 @@ app.get('/', (req, res) => {
   ctx.save();
   ctx.translate(pivotX, pivotY);
 
-  // 공격 중일 때만 검붉은 잔상: 둥근 스트로크 대신, 손 쪽은 좁고 칼끝 쪽은 넓은
-  // "쐐기(날카로운 부채꼴)" 모양으로 채워서 날카로운 느낌을 냄
+  // 공격 중일 때만 검기 이펙트: 뿌연 연기 잔상 여러 겹 + 날카로운 쐐기(부채꼴) +
+  // 칼끝의 밝은 흰빛 글로우 — 보내주신 참고 이미지(검붉은 연기 + 빛나는 칼끝) 느낌
   if (p.isAttacking) {
     const trailStart = swordBaseAngle;
-    const outerRadius = swordDrawSize * 0.95; // 칼끝까지 대략 거리 — 필요시 조절
-    const innerRadius = outerRadius * 0.15;   // 손 쪽 시작 반지름(작을수록 뾰족함)
-
-    const grad = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, outerRadius);
-    grad.addColorStop(0, 'rgba(15, 0, 0, 0.05)');
-    grad.addColorStop(0.55, 'rgba(120, 0, 0, 0.45)');
-    grad.addColorStop(1, 'rgba(255, 40, 20, 0.85)');
+    const outerRadius = swordDrawSize * 1.05; // 칼끝까지 대략 거리 — 필요시 조절
+    const innerRadius = outerRadius * 0.12;   // 손 쪽 시작 반지름(작을수록 뾰족함)
 
     ctx.save();
+
+    // 1) 뿌옇게 번지는 연기 같은 겹 (여러 겹을 살짝씩 어긋나게)
+    for (let w = 0; w < 4; w++) {
+      const wOffset = (w - 1.5) * 0.08;
+      const wAlpha = Math.max(0.03, 0.11 - w * 0.02);
+      ctx.strokeStyle = 'rgba(150, 10, 10, ' + wAlpha + ')';
+      ctx.shadowColor = 'rgba(150, 10, 10, 0.4)';
+      ctx.shadowBlur = 12;
+      ctx.lineWidth = 4 + w * 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, outerRadius * (0.55 + w * 0.12), trailStart + wOffset, swingAngle + wOffset);
+      ctx.stroke();
+    }
+
+    // 2) 날카로운 쐐기(부채꼴) 베이스 — 어두운 검붉은색 → 밝은 선홍색 그라데이션
+    const grad = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, outerRadius);
+    grad.addColorStop(0, 'rgba(10, 0, 0, 0.05)');
+    grad.addColorStop(0.5, 'rgba(110, 0, 0, 0.5)');
+    grad.addColorStop(0.85, 'rgba(200, 20, 10, 0.75)');
+    grad.addColorStop(1, 'rgba(255, 120, 80, 0.9)');
+
     ctx.beginPath();
     ctx.moveTo(innerRadius * Math.cos(trailStart), innerRadius * Math.sin(trailStart));
     ctx.lineTo(outerRadius * Math.cos(trailStart), outerRadius * Math.sin(trailStart));
@@ -1768,9 +1786,18 @@ app.get('/', (req, res) => {
     ctx.arc(0, 0, innerRadius, swingAngle, trailStart, true);
     ctx.closePath();
     ctx.fillStyle = grad;
-    ctx.shadowColor = 'rgba(180, 0, 0, 0.6)';
+    ctx.shadowColor = 'rgba(200, 0, 0, 0.7)';
     ctx.shadowBlur = 10;
     ctx.fill();
+
+    // 3) 칼끝의 밝은 흰빛 글로우 (참고 이미지 속 빛나는 칼끝 느낌)
+    ctx.beginPath();
+    ctx.arc(outerRadius * Math.cos(swingAngle), outerRadius * Math.sin(swingAngle), 1.6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 230, 200, 0.9)';
+    ctx.shadowColor = 'rgba(255, 200, 150, 0.9)';
+    ctx.shadowBlur = 14;
+    ctx.fill();
+
     ctx.restore();
   }
 
