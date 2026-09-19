@@ -1721,52 +1721,44 @@ app.get('/', (req, res) => {
     drawLuxShieldRing(ctx, 11);
   }
 
-  // 공격 안 할 땐 보호막 등 링 이펙트만, 공격 중엔 아래에서 칼+잔상을 따로 그림
-  const size = 24; // 캐릭터(몸통) 표시 크기 — 너무 크거나 작으면 이 숫자만 조절
+  // 몸통(칼 없는 이미지)은 항상 그대로 그림
+  const size = 24; // 캐릭터 표시 크기 — 너무 크거나 작으면 이 숫자만 조절
   const imgToDraw = atroxImageClean || (atroxImage.complete && atroxImage.naturalWidth > 0 ? atroxImage : null);
   if (imgToDraw) {
     ctx.drawImage(imgToDraw, -size / 2, -size / 2, size, size);
   }
 
-  // 칼: 몸통 이미지와 별도로 휘두르는 애니메이션 + 검붉은 잔상 트레일
+  // 칼: 몸통과 완전히 분리된 레이어. 평소에도 "든 자세"로 항상 보이고,
+  // 공격할 때만 그 위치를 기준으로 0 → 70도까지 아래로 내려감(공격 끝나면 다시 원위치).
+  const pivotX = 6;         // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 필요시 조절.
+  const pivotY = -3;        // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 필요시 조절.
+  const swordDrawSize = 20; // 칼 이미지 표시 크기 — 필요시 조절
+
+  // 칼 이미지 안에서 "손잡이 끝(=회전축)"의 위치를 이미지 가로/세로 비율(0~1)로 지정
+  const swordPivotFracX = 0.15; // 필요시 조절
+  const swordPivotFracY = 0.85; // 필요시 조절
+
+  // 칼 이미지 자체가 비스듬히 그려져 있어서, 회전 0도일 때도 보정이 필요하면 여기서 조절 (라디안)
+  const swordBaseAngle = 0; // 필요시 조절
+
+  const maxSwingDeg = 70; // 공격 시 최대로 내려가는 각도(도)
+  const swingAngle = swordBaseAngle + (p.isAttacking ? p.attackProgress * (maxSwingDeg * Math.PI / 180) : 0);
+
+  ctx.save();
+  ctx.translate(pivotX, pivotY);
+
+  // 공격 중일 때만 검붉은 잔상: 손(회전축) 기준, 기본자세(0)→현재각도까지 그려서 칼을 그대로 따라감
   if (p.isAttacking) {
-    const startAngle = -1.2;
-    const swingAngle = -1.2 + (p.attackProgress * 2.4);
-
-    // 칼을 쥔 손(회전축) 위치 — 몸통 이미지 중심(0,0) 기준 상대좌표. 필요시 조절.
-    const handOffsetX = 6;
-    const handOffsetY = -2;
-
-    // 칼 이미지를 그릴 크기
-    const swordDrawSize = 22; // 필요시 조절
-
-    // 칼 이미지 안에서 "손잡이 끝(=회전축이 되어야 할 지점)"의 위치를
-    // 이미지 가로/세로에 대한 비율(0~1)로 지정. 0=왼쪽/위, 1=오른쪽/아래.
-    // 보내주신 예시처럼 손잡이가 이미지 왼쪽 아래 쪽에 있는 칼이면 아래 기본값에서 크게 안 벗어남.
-    const swordPivotFracX = 0.15; // 필요시 조절
-    const swordPivotFracY = 0.85; // 필요시 조절
-
-    // 칼 이미지 자체가 이미 비스듬히(대각선으로) 그려져 있다면, 그 기울기만큼
-    // 보정해줘야 스윙 각도 0일 때 칼이 자연스러운 기본 방향을 보게 됨. (라디안)
-    // 예: 이미지 속 칼날이 오른쪽 위 45도를 향하고 있다면 -Math.PI/4 정도로 시작.
-    const swordImageAngleOffset = -Math.PI / 4; // 필요시 조절
-
-    // 잔상 반지름 = 회전축(손잡이)에서 칼끝까지의 대략적인 거리
-    const trailRadius = swordDrawSize * (1 - swordPivotFracY);
-
-    ctx.save();
-    ctx.translate(handOffsetX, handOffsetY);
-
-    // 잔상 궤적: 시작각~현재각 사이를 여러 조각으로 나눠서, 칼과 동일한 좌표계(손 위치 기준)로 그림
-    // 뒤쪽(오래된 잔상)은 검게 옅게, 칼날에 가까울수록 진한 빨강으로 그라데이션 표현
+    const trailRadius = swordDrawSize * (1 - swordPivotFracY) * 1.4; // 손에서 칼끝까지 대략 거리 — 필요시 조절
+    const trailStart = swordBaseAngle;
     const trailSegments = 14;
     for (let i = 0; i < trailSegments; i++) {
       const t0 = i / trailSegments;
       const t1 = (i + 1) / trailSegments;
-      const a0 = startAngle + (swingAngle - startAngle) * t0;
-      const a1 = startAngle + (swingAngle - startAngle) * t1;
-      const alpha = 0.05 + 0.55 * t1;           // 칼날 쪽일수록 진하게
-      const redAmount = Math.round(50 + 100 * t1); // 뒤쪽은 검은빛, 앞쪽은 검붉은빛
+      const a0 = trailStart + (swingAngle - trailStart) * t0;
+      const a1 = trailStart + (swingAngle - trailStart) * t1;
+      const alpha = 0.05 + 0.55 * t1;              // 칼날(현재 각도) 쪽일수록 진하게
+      const redAmount = Math.round(50 + 100 * t1); // 뒤쪽(오래된 잔상)은 검은빛, 앞쪽은 검붉은빛
 
       ctx.save();
       ctx.strokeStyle = 'rgba(' + redAmount + ', 0, 0, ' + alpha + ')';
@@ -1779,21 +1771,21 @@ app.get('/', (req, res) => {
       ctx.stroke();
       ctx.restore();
     }
-
-    // 실제 칼 이미지 — 손잡이 끝을 회전축으로 삼아서 그림
-    ctx.rotate(swingAngle + swordImageAngleOffset);
-    const swordImgToDraw = atroxSwordImageClean || (atroxSwordImage.complete && atroxSwordImage.naturalWidth > 0 ? atroxSwordImage : null);
-    if (swordImgToDraw) {
-      ctx.drawImage(
-        swordImgToDraw,
-        -swordDrawSize * swordPivotFracX,
-        -swordDrawSize * swordPivotFracY,
-        swordDrawSize,
-        swordDrawSize
-      );
-    }
-    ctx.restore();
   }
+
+  // 실제 칼 이미지 — 손잡이 끝을 회전축으로 삼아서 그림 (평소에도 항상 그려짐)
+  ctx.rotate(swingAngle);
+  const swordImgToDraw = atroxSwordImageClean || (atroxSwordImage.complete && atroxSwordImage.naturalWidth > 0 ? atroxSwordImage : null);
+  if (swordImgToDraw) {
+    ctx.drawImage(
+      swordImgToDraw,
+      -swordDrawSize * swordPivotFracX,
+      -swordDrawSize * swordPivotFracY,
+      swordDrawSize,
+      swordDrawSize
+    );
+  }
+  ctx.restore();
 
   ctx.restore();
 }
