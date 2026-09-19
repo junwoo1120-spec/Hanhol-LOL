@@ -1730,13 +1730,13 @@ app.get('/', (req, res) => {
 
   // 칼: 몸통과 완전히 분리된 레이어. 평소에도 "든 자세"로 항상 보이고,
   // 공격할 때만 그 위치를 기준으로 0 → 70도까지 아래로 내려감(공격 끝나면 다시 원위치).
-  const pivotX = 6;         // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 필요시 조절.
-  const pivotY = -3;        // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 필요시 조절.
-  const swordDrawSize = 20; // 칼 이미지 표시 크기 — 필요시 조절
+  const pivotX = 3;         // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 손에 안 붙으면 이 값을 줄이세요.
+  const pivotY = -2;        // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 필요시 조절.
+  const swordDrawSize = 12; // 칼 이미지 표시 크기 — 몸통(24)보다 훨씬 작아야 손에 붙어 보임. 필요시 조절.
 
   // 칼 이미지 안에서 "손잡이 끝(=회전축)"의 위치를 이미지 가로/세로 비율(0~1)로 지정
-  const swordPivotFracX = 0.15; // 필요시 조절
-  const swordPivotFracY = 0.85; // 필요시 조절
+  const swordPivotFracX = 0.1; // 필요시 조절
+  const swordPivotFracY = 0.9; // 필요시 조절
 
   // 칼 이미지 자체가 비스듬히 그려져 있어서, 회전 0도일 때도 보정이 필요하면 여기서 조절 (라디안)
   const swordBaseAngle = 0; // 필요시 조절
@@ -1747,30 +1747,31 @@ app.get('/', (req, res) => {
   ctx.save();
   ctx.translate(pivotX, pivotY);
 
-  // 공격 중일 때만 검붉은 잔상: 손(회전축) 기준, 기본자세(0)→현재각도까지 그려서 칼을 그대로 따라감
+  // 공격 중일 때만 검붉은 잔상: 둥근 스트로크 대신, 손 쪽은 좁고 칼끝 쪽은 넓은
+  // "쐐기(날카로운 부채꼴)" 모양으로 채워서 날카로운 느낌을 냄
   if (p.isAttacking) {
-    const trailRadius = swordDrawSize * (1 - swordPivotFracY) * 1.4; // 손에서 칼끝까지 대략 거리 — 필요시 조절
     const trailStart = swordBaseAngle;
-    const trailSegments = 14;
-    for (let i = 0; i < trailSegments; i++) {
-      const t0 = i / trailSegments;
-      const t1 = (i + 1) / trailSegments;
-      const a0 = trailStart + (swingAngle - trailStart) * t0;
-      const a1 = trailStart + (swingAngle - trailStart) * t1;
-      const alpha = 0.05 + 0.55 * t1;              // 칼날(현재 각도) 쪽일수록 진하게
-      const redAmount = Math.round(50 + 100 * t1); // 뒤쪽(오래된 잔상)은 검은빛, 앞쪽은 검붉은빛
+    const outerRadius = swordDrawSize * 0.95; // 칼끝까지 대략 거리 — 필요시 조절
+    const innerRadius = outerRadius * 0.15;   // 손 쪽 시작 반지름(작을수록 뾰족함)
 
-      ctx.save();
-      ctx.strokeStyle = 'rgba(' + redAmount + ', 0, 0, ' + alpha + ')';
-      ctx.shadowColor = 'rgba(80, 0, 0, ' + alpha + ')';
-      ctx.shadowBlur = 6;
-      ctx.lineWidth = 10;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(0, 0, trailRadius, a0, a1);
-      ctx.stroke();
-      ctx.restore();
-    }
+    const grad = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, outerRadius);
+    grad.addColorStop(0, 'rgba(15, 0, 0, 0.05)');
+    grad.addColorStop(0.55, 'rgba(120, 0, 0, 0.45)');
+    grad.addColorStop(1, 'rgba(255, 40, 20, 0.85)');
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(innerRadius * Math.cos(trailStart), innerRadius * Math.sin(trailStart));
+    ctx.lineTo(outerRadius * Math.cos(trailStart), outerRadius * Math.sin(trailStart));
+    ctx.arc(0, 0, outerRadius, trailStart, swingAngle);
+    ctx.lineTo(innerRadius * Math.cos(swingAngle), innerRadius * Math.sin(swingAngle));
+    ctx.arc(0, 0, innerRadius, swingAngle, trailStart, true);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.shadowColor = 'rgba(180, 0, 0, 0.6)';
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.restore();
   }
 
   // 실제 칼 이미지 — 손잡이 끝을 회전축으로 삼아서 그림 (평소에도 항상 그려짐)
@@ -3976,7 +3977,10 @@ setInterval(() => {
     }
 
     if (p.isAttacking) {
-      p.attackProgress += 0.05;
+      // 스윙 애니메이션 자체의 재생 속도 (공격 쿨타임/공속과는 별개).
+      // 아트록스만 1.3배 빠르게 재생되도록 함.
+      const progressStep = p.champion === 'aatrox' ? 0.05 * 1.3 : 0.05;
+      p.attackProgress += progressStep;
       if (p.attackProgress >= 1) {
         p.isAttacking = false;
         p.attackProgress = 0;
