@@ -934,7 +934,7 @@ app.get('/', (req, res) => {
           // 이미지 가장자리(테두리)부터 시작해서 밝은 색(흰색/회색 체크무늬 등)이
           // 서로 이어져 있는 영역을 전부 투명하게 지운다. 캐릭터는 보통 검은
           // 테두리 선으로 둘러싸여 있어서 그 선이 "벽" 역할을 해 안쪽 색은 보존됨.
-          function removeBackgroundFloodFill(img, brightnessCutoff = 150) {
+          function removeBackgroundFloodFill(img, colorTolerance = 40) {
             const canvas = document.createElement('canvas');
             canvas.width = img.naturalWidth;
             canvas.height = img.naturalHeight;
@@ -945,6 +945,40 @@ app.get('/', (req, res) => {
             const imageData = ctx.getImageData(0, 0, width, height);
             const data = imageData.data;
 
+            // 1) 가장자리(테두리) 픽셀들의 색을 샘플링해서, 자주 나오는 배경색 몇 가지를 뽑아둠
+            //    (체크무늬 배경처럼 색이 2~3가지로 번갈아 나와도 대응 가능)
+            const colorCounts = {};
+            function sampleBorderPixel(x, y) {
+              const i = (y * width + x) * 4;
+              if (data[i + 3] === 0) return;
+              const key = (data[i] >> 4) + ',' + (data[i + 1] >> 4) + ',' + (data[i + 2] >> 4);
+              colorCounts[key] = (colorCounts[key] || 0) + 1;
+            }
+            for (let x = 0; x < width; x++) {
+              sampleBorderPixel(x, 0);
+              sampleBorderPixel(x, height - 1);
+            }
+            for (let y = 0; y < height; y++) {
+              sampleBorderPixel(0, y);
+              sampleBorderPixel(width - 1, y);
+            }
+            const bgPalette = Object.keys(colorCounts)
+              .sort((a, b) => colorCounts[b] - colorCounts[a])
+              .slice(0, 4)
+              .map(k => k.split(',').map(v => parseInt(v, 10) * 16 + 8));
+
+            function isBackgroundColor(r, g, b) {
+              for (let p = 0; p < bgPalette.length; p++) {
+                const dr = r - bgPalette[p][0];
+                const dg = g - bgPalette[p][1];
+                const db = b - bgPalette[p][2];
+                if (Math.sqrt(dr * dr + dg * dg + db * db) <= colorTolerance) return true;
+              }
+              return false;
+            }
+
+            // 2) 가장자리에서 시작해서, 배경색 팔레트와 색이 비슷한 픽셀만 지움
+            //    (얼굴처럼 밝지만 배경과는 다른 색인 부분은 보존됨)
             const visited = new Uint8Array(width * height);
             const stackX = [];
             const stackY = [];
@@ -970,8 +1004,7 @@ app.get('/', (req, res) => {
               const i = vIdx * 4;
               if (data[i + 3] === 0) continue;
 
-              const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-              if (brightness < brightnessCutoff) continue; // 어두운 테두리/선은 여기서 멈춤
+              if (!isBackgroundColor(data[i], data[i + 1], data[i + 2])) continue; // 배경색과 다르면 여기서 멈춤(캐릭터 보존)
 
               data[i + 3] = 0; // 투명 처리
 
@@ -1732,10 +1765,9 @@ app.get('/', (req, res) => {
   // 공격할 때만 그 위치를 기준으로 0 → 70도까지 아래로 내려감(공격 끝나면 다시 원위치).
   const pivotX = 6;         // 회전축(칼 쥔 손 위치) — 몸통 중심(0,0) 기준. 오른쪽으로 이동.
   const pivotY = 1;         // 회전축(칼 쥔 손 위치) — 머리 위로 안 뜨게 몸통 중앙 높이로 내림.
-  const swordDrawSize = 16; // 칼 이미지 표시 크기 — 키움. 필요시 조절.
+  const swordDrawSize = 20.8; // 칼 이미지 표시 크기 — 기존 16의 1.3배. 필요시 조절.
 
   // 칼 이미지 안에서 "손잡이 끝(=회전축)"의 위치를 이미지 가로/세로 비율(0~1)로 지정
-  // fracY를 0.9에서 낮춰서, 평소(회전 0도)에 이미지가 머리 위로 거의 다 삐져나가던 문제를 줄임
   const swordPivotFracX = 0.2; // 필요시 조절
   const swordPivotFracY = 0.7; // 필요시 조절
 
@@ -1747,60 +1779,6 @@ app.get('/', (req, res) => {
 
   ctx.save();
   ctx.translate(pivotX, pivotY);
-
-  // 공격 중일 때만 검기 이펙트: 뿌연 연기 잔상 여러 겹 + 날카로운 쐐기(부채꼴) +
-  // 칼끝의 밝은 흰빛 글로우 — 보내주신 참고 이미지(검붉은 연기 + 빛나는 칼끝) 느낌
-  if (p.isAttacking) {
-    const trailStart = swordBaseAngle;
-    const outerRadius = swordDrawSize * 1.05; // 칼끝까지 대략 거리 — 필요시 조절
-    const innerRadius = outerRadius * 0.12;   // 손 쪽 시작 반지름(작을수록 뾰족함)
-
-    ctx.save();
-    ctx.scale(1, -1); // 이펙트를 세로(상하)로 반전
-
-    // 1) 뿌옇게 번지는 연기 같은 겹 (여러 겹을 살짝씩 어긋나게)
-    for (let w = 0; w < 4; w++) {
-      const wOffset = (w - 1.5) * 0.08;
-      const wAlpha = Math.max(0.03, 0.11 - w * 0.02);
-      ctx.strokeStyle = 'rgba(150, 10, 10, ' + wAlpha + ')';
-      ctx.shadowColor = 'rgba(150, 10, 10, 0.4)';
-      ctx.shadowBlur = 12;
-      ctx.lineWidth = 4 + w * 2;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(0, 0, outerRadius * (0.55 + w * 0.12), trailStart + wOffset, swingAngle + wOffset);
-      ctx.stroke();
-    }
-
-    // 2) 날카로운 쐐기(부채꼴) 베이스 — 어두운 검붉은색 → 밝은 선홍색 그라데이션
-    const grad = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, outerRadius);
-    grad.addColorStop(0, 'rgba(10, 0, 0, 0.05)');
-    grad.addColorStop(0.5, 'rgba(110, 0, 0, 0.5)');
-    grad.addColorStop(0.85, 'rgba(200, 20, 10, 0.75)');
-    grad.addColorStop(1, 'rgba(255, 120, 80, 0.9)');
-
-    ctx.beginPath();
-    ctx.moveTo(innerRadius * Math.cos(trailStart), innerRadius * Math.sin(trailStart));
-    ctx.lineTo(outerRadius * Math.cos(trailStart), outerRadius * Math.sin(trailStart));
-    ctx.arc(0, 0, outerRadius, trailStart, swingAngle);
-    ctx.lineTo(innerRadius * Math.cos(swingAngle), innerRadius * Math.sin(swingAngle));
-    ctx.arc(0, 0, innerRadius, swingAngle, trailStart, true);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.shadowColor = 'rgba(200, 0, 0, 0.7)';
-    ctx.shadowBlur = 10;
-    ctx.fill();
-
-    // 3) 칼끝의 밝은 흰빛 글로우 (참고 이미지 속 빛나는 칼끝 느낌)
-    ctx.beginPath();
-    ctx.arc(outerRadius * Math.cos(swingAngle), outerRadius * Math.sin(swingAngle), 1.6, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 230, 200, 0.9)';
-    ctx.shadowColor = 'rgba(255, 200, 150, 0.9)';
-    ctx.shadowBlur = 14;
-    ctx.fill();
-
-    ctx.restore();
-  }
 
   // 실제 칼 이미지 — 손잡이 끝을 회전축으로 삼아서 그림 (평소에도 항상 그려짐)
   ctx.rotate(swingAngle);
