@@ -1756,6 +1756,7 @@ app.get('/', (req, res) => {
     const innerRadius = outerRadius * 0.12;   // 손 쪽 시작 반지름(작을수록 뾰족함)
 
     ctx.save();
+    ctx.scale(1, -1); // 이펙트를 세로(상하)로 반전
 
     // 1) 뿌옇게 번지는 연기 같은 겹 (여러 겹을 살짝씩 어긋나게)
     for (let w = 0; w < 4; w++) {
