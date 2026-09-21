@@ -1771,10 +1771,10 @@ app.get('/', (req, res) => {
 
   if (typeof devSwordOnBack !== 'undefined' && devSwordOnBack) {
     // [테스트용] 등 뒤 포즈: 칼을 머리 위에 세로로 세워서, 몸통보다 먼저 그려 아래쪽이 몸에 가려지게 함
-    const backPivotX = 0;   // 회전축(칼이 등에 닿는 지점) — 좌우 중앙. 필요시 조절.
-    const backPivotY = -6;  // 회전축 — 머리 위쪽. 필요시 조절.
+    const backPivotX = 2;    // 회전축(칼이 등에 닿는 지점) — 좌우 중앙 기준 살짝 오른쪽. 필요시 조절.
+    const backPivotY = -4;   // 회전축 — 머리 바로 위쪽. 필요시 조절.
     const backSwordSize = 22; // 필요시 조절
-    const backAngle = -Math.PI / 2; // 칼이 위를 향하도록. 칼 이미지 방향에 따라 조절 필요.
+    const backAngle = -Math.PI / 4; // 칼이 위를 향하도록. 칼 이미지가 원래 대각선이라 -90도는 과했음 → -45도로 축소.
 
     ctx.save();
     ctx.translate(backPivotX, backPivotY);
@@ -1796,6 +1796,20 @@ app.get('/', (req, res) => {
   }
 
   drawAatroxBody();
+
+  // 공격 중: 실제 사거리(CHAMPION_BASE_STATS.aatrox.attackRange)만큼 반투명 검붉은 부채꼴 표시
+  if (p.isAttacking) {
+    const rangeFanRadius = (CHAMPION_BASE_STATS.aatrox && CHAMPION_BASE_STATS.aatrox.attackRange) || 35;
+    const rangeFanHalfAngle = 0.6; // 부채꼴 좌우 폭(라디안) — 필요시 조절
+    ctx.save();
+    ctx.fillStyle = 'rgba(120, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, rangeFanRadius, -rangeFanHalfAngle, rangeFanHalfAngle);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 
   // 칼: 몸통과 완전히 분리된 레이어. 평소에도 "든 자세"로 항상 보이고,
   // 공격할 때만 그 위치를 기준으로 0 → 70도까지 아래로 내려감(공격 끝나면 다시 원위치).
