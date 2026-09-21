@@ -1772,18 +1772,21 @@ app.get('/', (req, res) => {
   if (typeof devSwordOnBack !== 'undefined' && devSwordOnBack) {
     // [테스트용] 등 뒤 포즈: 칼을 머리 위에 세로로 세워서, 몸통보다 먼저 그려 아래쪽이 몸에 가려지게 함
     const backPivotX = 2;    // 회전축(칼이 등에 닿는 지점) — 좌우 중앙 기준 살짝 오른쪽. 필요시 조절.
-    const backPivotY = -4;   // 회전축 — 머리 바로 위쪽. 필요시 조절.
+    const backPivotY = -2;   // 회전축 — 머리 바로 위쪽. 높이를 -4에서 더 낮춤. 필요시 조절.
     const backSwordSize = 22; // 필요시 조절
-    const backAngle = -Math.PI / 4; // 칼이 위를 향하도록. 칼 이미지가 원래 대각선이라 -90도는 과했음 → -45도로 축소.
+    const backFracX = 0.2;
+    const backFracY = 0.7;
+    const backAngle = -Math.PI / 3.2; // 칼이 완전히 수직이 되도록 -45도에서 조금 더 회전 (약 -56도)
 
     ctx.save();
     ctx.translate(backPivotX, backPivotY);
     ctx.rotate(backAngle);
+    ctx.scale(1, -1); // 칼이 반대 방향(위아래)으로 보이던 것을 뒤집음
     if (swordImgToDraw) {
       ctx.drawImage(
         swordImgToDraw,
-        -backSwordSize * 0.2,
-        -backSwordSize * 0.7,
+        -backSwordSize * backFracX,
+        backSwordSize * backFracY - backSwordSize,
         backSwordSize,
         backSwordSize
       );
