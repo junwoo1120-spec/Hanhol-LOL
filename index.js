@@ -1769,8 +1769,9 @@ app.get('/', (req, res) => {
     }
   }
 
-  if (typeof devSwordOnBack !== 'undefined' && devSwordOnBack) {
+  if (typeof devSwordOnBack !== 'undefined' && devSwordOnBack && !p.isAttacking) {
     // [테스트용] 등 뒤 포즈: 칼을 머리 위에 세로로 세워서, 몸통보다 먼저 그려 아래쪽이 몸에 가려지게 함
+    // 공격 중일 땐 이 분기를 타지 않고 아래(원래 스윙 동작)로 자연스럽게 넘어감
     const backPivotX = 2;    // 회전축(칼이 등에 닿는 지점) — 좌우 중앙 기준 살짝 오른쪽. 필요시 조절.
     const backPivotY = -2;   // 회전축 — 머리 바로 위쪽. 높이를 -4에서 더 낮춤. 필요시 조절.
     const backSwordSize = 22; // 필요시 조절
